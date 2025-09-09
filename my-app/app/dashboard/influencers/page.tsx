@@ -44,6 +44,12 @@ export default function InfluencersPage() {
   const [sendingEmail, setSendingEmail] = useState(false)
   const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
+  // Deep search state
+  const [deepSearchLoading, setDeepSearchLoading] = useState<Record<string, boolean>>({})
+  const [deepSearchResults, setDeepSearchResults] = useState<Record<string, any>>({})
+  const [deepSearchModalOpen, setDeepSearchModalOpen] = useState(false)
+  const [selectedVideoForAnalysis, setSelectedVideoForAnalysis] = useState<any>(null)
+
   // Clear any stale cached results on mount/user change
   useEffect(() => {
     try {
@@ -210,6 +216,72 @@ export default function InfluencersPage() {
     }
   }
 
+  // Deep search functions
+  const performDeepSearch = async (influencer: any) => {
+    const key = `${influencer.channel_id}_deep_search`
+    setDeepSearchLoading(prev => ({ ...prev, [key]: true }))
+
+    try {
+      // Get video URL (either from recent_videos or database)
+      const videoUrl = await getVideoUrl(influencer)
+      
+      if (!videoUrl) {
+        alert('No video available for deep search. This influencer needs video data in the database.')
+        return
+      }
+
+      const response = await apiClient.analyzeVideo({
+        video_url: videoUrl,
+        channel_id: influencer.channel_id,
+        product_id: selectedProduct?.id,
+        influencer_name: influencer.title,
+        company_values: ['innovation', 'quality', 'sustainability', 'customer-first'],
+        company_country: 'US',
+        is_luxury: selectedProduct?.is_luxury || false
+      })
+
+      if (response.success) {
+        setDeepSearchResults(prev => ({ ...prev, [key]: response.data }))
+        setSelectedVideoForAnalysis({ ...influencer, video_url: videoUrl, analysis: response.data })
+        setDeepSearchModalOpen(true)
+      } else {
+        alert(`Deep search failed: ${response.error}`)
+      }
+    } catch (error) {
+      console.error('Deep search error:', error)
+      alert('Deep search failed. Please try again.')
+    } finally {
+      setDeepSearchLoading(prev => ({ ...prev, [key]: false }))
+    }
+  }
+
+  const closeDeepSearchModal = () => {
+    setDeepSearchModalOpen(false)
+    setSelectedVideoForAnalysis(null)
+  }
+
+  const getVideoUrl = async (influencer: any) => {
+    // First try recent_videos if available
+    if (influencer.recent_videos && influencer.recent_videos.length > 0) {
+      const video = influencer.recent_videos[0]
+      return `https://www.youtube.com/watch?v=${video.video_id}`
+    }
+    
+    // If no recent_videos, query the database for the first video from this channel
+    if (influencer.channel_id) {
+      try {
+        const response = await apiClient.getChannelVideo(influencer.channel_id)
+        if (response.success && response.data) {
+          return response.data.video_url
+        }
+      } catch (error) {
+        console.error('Error fetching channel video:', error)
+      }
+    }
+    
+    return null
+  }
+
   if (isLoading || !user) return <div className="p-6">Loading...</div>
 
   return (
@@ -338,6 +410,18 @@ export default function InfluencersPage() {
                               </button>
                               <span className="font-medium">{inf.email || 'N/A'}</span>
                             </div>
+                            <div className="flex items-center justify-between text-sm mt-2">
+                              <button
+                                onClick={() => performDeepSearch(inf)}
+                                disabled={deepSearchLoading[`${inf.channel_id}_deep_search`]}
+                                className="px-2 py-1 text-xs bg-purple-500 text-white rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
+                              >
+                                {deepSearchLoading[`${inf.channel_id}_deep_search`] ? '🔍 Analyzing...' : '🔍 Deep Search'}
+                              </button>
+                              <span className="text-xs text-muted-foreground">
+                                AI Analysis
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -420,6 +504,223 @@ export default function InfluencersPage() {
                   ❌ Failed to send email. Please try again.
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Deep Search Results Modal */}
+      {deepSearchModalOpen && selectedVideoForAnalysis && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Deep Search Analysis: {selectedVideoForAnalysis.title}</h3>
+              <button
+                onClick={closeDeepSearchModal}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              {/* Video Info */}
+              <div className="p-4 bg-gray-50 rounded-lg">
+                <h4 className="font-medium mb-2">Video Information</h4>
+                <p className="text-sm text-gray-600">
+                  <strong>Channel:</strong> {selectedVideoForAnalysis.title}<br/>
+                  <strong>Video URL:</strong> <a href={selectedVideoForAnalysis.video_url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">{selectedVideoForAnalysis.video_url}</a>
+                </p>
+              </div>
+
+              {/* Analysis Results */}
+              {selectedVideoForAnalysis.analysis && (
+                <div className="space-y-4">
+                  {/* Overall Score */}
+                  {selectedVideoForAnalysis.analysis.overall_score && (
+                    <div className="p-4 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border-2 border-purple-200">
+                      <h4 className="font-medium mb-2 text-purple-800">🎯 Overall Score</h4>
+                      <div className="flex items-center space-x-4">
+                        <div className="text-3xl font-bold text-purple-600">
+                          {selectedVideoForAnalysis.analysis.overall_score}/100
+                        </div>
+                        <div className="flex-1">
+                          <div className="w-full bg-gray-200 rounded-full h-3">
+                            <div 
+                              className="bg-gradient-to-r from-purple-500 to-blue-500 h-3 rounded-full transition-all duration-500"
+                              style={{ width: `${selectedVideoForAnalysis.analysis.overall_score}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Comprehensive Scores */}
+                  {selectedVideoForAnalysis.analysis.content_quality_score && (
+                    <div className="p-4 bg-gray-50 rounded-lg">
+                      <h4 className="font-medium mb-3 text-gray-800">📊 Comprehensive Analysis Scores</h4>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {[
+                          { key: 'content_quality_score', label: 'Content Quality', color: 'blue' },
+                          { key: 'values_alignment_score', label: 'Values Alignment', color: 'green' },
+                          { key: 'engagement_potential_score', label: 'Engagement Potential', color: 'yellow' },
+                          { key: 'brand_safety_score', label: 'Brand Safety', color: 'red' },
+                          { key: 'cultural_fit_score', label: 'Cultural Fit', color: 'purple' },
+                          { key: 'influence_potential_score', label: 'Influence Potential', color: 'indigo' },
+                          { key: 'content_consistency_score', label: 'Content Consistency', color: 'pink' },
+                          { key: 'audience_quality_score', label: 'Audience Quality', color: 'teal' }
+                        ].map(({ key, label, color }) => {
+                          const score = selectedVideoForAnalysis.analysis[key];
+                          if (!score) return null;
+                          return (
+                            <div key={key} className="text-center">
+                              <div className="text-2xl font-bold text-gray-800">{score}</div>
+                              <div className="text-xs text-gray-600 mb-1">{label}</div>
+                              <div className="w-full bg-gray-200 rounded-full h-2">
+                                <div 
+                                  className={`bg-${color}-500 h-2 rounded-full transition-all duration-500`}
+                                  style={{ width: `${score}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Analysis Details */}
+                  {selectedVideoForAnalysis.analysis.analysis_reasoning && (
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <h4 className="font-medium mb-2 text-blue-800">💭 Analysis Reasoning</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                        {Object.entries(selectedVideoForAnalysis.analysis.analysis_reasoning).map(([key, value]) => (
+                          <div key={key} className="bg-white p-3 rounded border">
+                            <div className="font-medium text-gray-700 capitalize mb-1">
+                              {key.replace(/_/g, ' ')}
+                            </div>
+                            <div className="text-gray-600">{value as string}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recommendations */}
+                  {selectedVideoForAnalysis.analysis.recommendations && selectedVideoForAnalysis.analysis.recommendations.length > 0 && (
+                    <div className="p-4 bg-green-50 rounded-lg">
+                      <h4 className="font-medium mb-2 text-green-800">💡 Recommendations</h4>
+                      <ul className="space-y-2">
+                        {selectedVideoForAnalysis.analysis.recommendations.map((rec: string, index: number) => (
+                          <li key={index} className="text-sm text-green-700 flex items-start">
+                            <span className="mr-2">•</span>
+                            <span>{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Strengths */}
+                  {selectedVideoForAnalysis.analysis.strengths && selectedVideoForAnalysis.analysis.strengths.length > 0 && (
+                    <div className="p-4 bg-yellow-50 rounded-lg">
+                      <h4 className="font-medium mb-2 text-yellow-800">⭐ Key Strengths</h4>
+                      <ul className="space-y-2">
+                        {selectedVideoForAnalysis.analysis.strengths.map((strength: string, index: number) => (
+                          <li key={index} className="text-sm text-yellow-700 flex items-start">
+                            <span className="mr-2">•</span>
+                            <span>{strength}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Risk Factors */}
+                  {selectedVideoForAnalysis.analysis.risk_factors && selectedVideoForAnalysis.analysis.risk_factors.length > 0 && (
+                    <div className="p-4 bg-red-50 rounded-lg">
+                      <h4 className="font-medium mb-2 text-red-800">⚠️ Risk Factors</h4>
+                      <ul className="space-y-2">
+                        {selectedVideoForAnalysis.analysis.risk_factors.map((risk: string, index: number) => (
+                          <li key={index} className="text-sm text-red-700 flex items-start">
+                            <span className="mr-2">•</span>
+                            <span>{risk}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {/* Summary */}
+                  {selectedVideoForAnalysis.analysis.summary && (
+                    <div className="p-4 bg-blue-50 rounded-lg">
+                      <h4 className="font-medium mb-2 text-blue-800">📄 Video Summary</h4>
+                      <p className="text-sm text-blue-700">{selectedVideoForAnalysis.analysis.summary}</p>
+                    </div>
+                  )}
+
+                  {/* Chapters */}
+                  {selectedVideoForAnalysis.analysis.chapters && selectedVideoForAnalysis.analysis.chapters.length > 0 && (
+                    <div className="p-4 bg-green-50 rounded-lg">
+                      <h4 className="font-medium mb-2 text-green-800">📑 Video Chapters</h4>
+                      <div className="space-y-2">
+                        {selectedVideoForAnalysis.analysis.chapters.map((chapter: any, index: number) => (
+                          <div key={index} className="text-sm text-green-700 border-l-2 border-green-300 pl-3">
+                            <div className="font-medium">Chapter {chapter.chapter_number}: {chapter.title}</div>
+                            <div className="text-xs text-gray-600">{chapter.start} - {chapter.end}</div>
+                            <div className="mt-1">{chapter.summary}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom Analysis */}
+                  {selectedVideoForAnalysis.analysis.analysis && (
+                    <div className="p-4 bg-purple-50 rounded-lg">
+                      <h4 className="font-medium mb-2 text-purple-800">🔍 Custom Analysis</h4>
+                      <div className="text-sm text-purple-700 whitespace-pre-wrap">{selectedVideoForAnalysis.analysis.analysis}</div>
+                    </div>
+                  )}
+
+                  {/* Status */}
+                  <div className="p-4 bg-gray-50 rounded-lg">
+                    <h4 className="font-medium mb-2">Analysis Status</h4>
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-1 text-xs rounded ${
+                        selectedVideoForAnalysis.analysis.status === 'completed' 
+                          ? 'bg-green-100 text-green-800' 
+                          : selectedVideoForAnalysis.analysis.status === 'failed'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-yellow-100 text-yellow-800'
+                      }`}>
+                        {selectedVideoForAnalysis.analysis.status}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {selectedVideoForAnalysis.analysis.created_at ? new Date(selectedVideoForAnalysis.analysis.created_at).toLocaleString() : ''}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Loading State */}
+              {!selectedVideoForAnalysis.analysis && (
+                <div className="p-8 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-4"></div>
+                  <p className="text-gray-600">Analyzing video content...</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end mt-6">
+              <button
+                onClick={closeDeepSearchModal}
+                className="px-4 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>

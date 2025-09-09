@@ -1,6 +1,6 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identity
-from models import db, User
+from models import db, User, VideoCache
 from datetime import timedelta
 import re
 from models import Product, ScoringWeights
@@ -1111,3 +1111,36 @@ def send_notification():
     except Exception as e:
         print(f"Error sending notification: {e}")
         return jsonify({"error": "Failed to send notification"}), 500
+
+@auth_bp.route('/get-channel-video', methods=['GET'])
+@jwt_required()
+def get_channel_video():
+    """Get the first video for a specific channel from video_cache"""
+    try:
+        channel_id = request.args.get('channel_id')
+        if not channel_id:
+            return jsonify({"error": "channel_id is required"}), 400
+        
+        # Get the first video for this channel from video_cache
+        video = VideoCache.query.filter_by(channel_id=channel_id).first()
+        
+        if not video:
+            return jsonify({
+                "success": False,
+                "error": "No videos found for this channel"
+            }), 404
+        
+        return jsonify({
+            "success": True,
+            "data": {
+                "video_id": video.video_id,
+                "title": video.title,
+                "video_url": f"https://www.youtube.com/watch?v={video.video_id}",
+                "channel_id": video.channel_id,
+                "channel_title": video.channel_title
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error getting channel video: {e}")
+        return jsonify({"error": "Failed to get channel video"}), 500

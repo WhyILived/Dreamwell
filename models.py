@@ -280,3 +280,80 @@ class AIScoreCache(db.Model):
 
     def __repr__(self):
         return f'<AIScoreCache channel_id={self.channel_id}>'
+
+class DeepSearchCache(db.Model):
+    """Cache for deep search results from Twelve Labs analysis."""
+    __tablename__ = 'deep_search_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    video_url = db.Column(db.String(1024), nullable=False, index=True)
+    video_id = db.Column(db.String(32), nullable=True, index=True)
+    channel_id = db.Column(db.String(64), nullable=True, index=True)
+    video_file_path = db.Column(db.String(1024), nullable=True)
+    twelve_labs_video_id = db.Column(db.String(64), nullable=True)
+    summary = db.Column(db.Text, nullable=True)
+    chapters = db.Column(db.Text, nullable=True)  # JSON string of chapters
+    analysis = db.Column(db.Text, nullable=True)  # Custom analysis results
+    status = db.Column(db.String(20), nullable=False, default='pending')  # pending, processing, completed, failed
+    error_message = db.Column(db.Text, nullable=True)
+    
+    # Comprehensive analysis fields
+    content_quality_score = db.Column(db.Integer, nullable=True)
+    values_alignment_score = db.Column(db.Integer, nullable=True)
+    engagement_potential_score = db.Column(db.Integer, nullable=True)
+    brand_safety_score = db.Column(db.Integer, nullable=True)
+    cultural_fit_score = db.Column(db.Integer, nullable=True)
+    influence_potential_score = db.Column(db.Integer, nullable=True)
+    content_consistency_score = db.Column(db.Integer, nullable=True)
+    audience_quality_score = db.Column(db.Integer, nullable=True)
+    overall_score = db.Column(db.Integer, nullable=True)
+    
+    # Analysis details
+    analysis_reasoning = db.Column(db.Text, nullable=True)  # JSON string
+    recommendations = db.Column(db.Text, nullable=True)  # JSON string
+    risk_factors = db.Column(db.Text, nullable=True)  # JSON string
+    strengths = db.Column(db.Text, nullable=True)  # JSON string
+    analysis_timestamp = db.Column(db.DateTime, nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'video_url': self.video_url,
+            'video_id': self.video_id,
+            'channel_id': self.channel_id,
+            'video_file_path': self.video_file_path,
+            'twelve_labs_video_id': self.twelve_labs_video_id,
+            'summary': self.summary,
+            'chapters': json.loads(self.chapters) if self.chapters else [],
+            'analysis': self.analysis,
+            'status': self.status,
+            'error_message': self.error_message,
+            
+            # Comprehensive analysis scores
+            'content_quality_score': self.content_quality_score,
+            'values_alignment_score': self.values_alignment_score,
+            'engagement_potential_score': self.engagement_potential_score,
+            'brand_safety_score': self.brand_safety_score,
+            'cultural_fit_score': self.cultural_fit_score,
+            'influence_potential_score': self.influence_potential_score,
+            'content_consistency_score': self.content_consistency_score,
+            'audience_quality_score': self.audience_quality_score,
+            'overall_score': self.overall_score,
+            
+            # Analysis details
+            'analysis_reasoning': json.loads(self.analysis_reasoning) if self.analysis_reasoning else {},
+            'recommendations': json.loads(self.recommendations) if self.recommendations else [],
+            'risk_factors': json.loads(self.risk_factors) if self.risk_factors else [],
+            'strengths': json.loads(self.strengths) if self.strengths else [],
+            'analysis_timestamp': self.analysis_timestamp.isoformat() if self.analysis_timestamp else None,
+            
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+    def __repr__(self):
+        return f'<DeepSearchCache video_url={self.video_url} status={self.status}>'

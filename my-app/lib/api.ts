@@ -170,6 +170,40 @@ class ApiClient {
       body: JSON.stringify(notificationData),
     });
   }
+
+  // Deep Search methods
+  async analyzeVideo(analysisData: {
+    video_url: string;
+    channel_id?: string;
+    product_id?: number;
+    influencer_name?: string;
+    custom_prompt?: string;
+  }): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.request<{ success: boolean; data?: any; error?: string }>('/api/auth/deep-search/analyze', {
+      method: 'POST',
+      body: JSON.stringify(analysisData),
+    });
+  }
+
+  async getAnalysisStatus(videoUrl: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    const encodedUrl = encodeURIComponent(videoUrl);
+    return this.request<{ success: boolean; data?: any; error?: string }>(`/api/auth/deep-search/status/${encodedUrl}`);
+  }
+
+  async getAnalysisHistory(): Promise<{ success: boolean; data?: any[]; error?: string }> {
+    return this.request<{ success: boolean; data?: any[]; error?: string }>('/api/auth/deep-search/history');
+  }
+
+  async retryAnalysis(analysisId: number): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.request<{ success: boolean; data?: any; error?: string }>(`/api/auth/deep-search/retry/${analysisId}`, {
+      method: 'POST',
+    });
+  }
+
+  // Channel video methods
+  async getChannelVideo(channelId: string): Promise<{ success: boolean; data?: any; error?: string }> {
+    return this.request<{ success: boolean; data?: any; error?: string }>(`/api/auth/get-channel-video?channel_id=${encodeURIComponent(channelId)}`);
+  }
 }
 
 export const apiClient = new ApiClient(API_BASE_URL);

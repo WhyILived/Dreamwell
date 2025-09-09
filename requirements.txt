@@ -10,3 +10,5 @@ beautifulsoup4
 google-api-python-client
 youtube-transcript-api
 google-generativeai
+yt-dlp==2023.12.30
+twelvelabs==0.1.0

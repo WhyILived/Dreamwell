@@ -7,6 +7,7 @@ from sqlalchemy import event
 from sqlalchemy.engine import Engine
 import sqlite3
 from auth import auth_bp
+from deep_search_routes import deep_search_bp
 import os
 from config import config
 
@@ -38,6 +39,7 @@ def create_app(config_name=None):
     
     # Register blueprints
     app.register_blueprint(auth_bp)
+    app.register_blueprint(deep_search_bp)
     
     @app.route('/')
     def home():

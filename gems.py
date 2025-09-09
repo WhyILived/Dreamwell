@@ -7,6 +7,7 @@ Centralized location for all external API calls and prompts
 import os
 import json
 from typing import Dict, List, Any, Optional
+from datetime import datetime
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -227,6 +228,192 @@ class GemsAPI:
             return []
 
     # ==================== GEMINI API FUNCTIONS ====================
+    
+    def analyze_deep_search_with_gemini(self, deep_search_data: Dict[str, Any], company_values: List[str], company_country: str = "US", is_luxury: bool = False) -> Dict[str, Any]:
+        """
+        Analyze deep search results with Gemini to create comprehensive influencer scoring.
+        
+        Args:
+            deep_search_data: Results from deep search (summary, chapters, analysis)
+            company_values: List of company values for alignment scoring
+            company_country: Company's target country
+            is_luxury: Whether this is a luxury brand
+            
+        Returns:
+            Dict containing comprehensive scores and analysis
+        """
+        if not self.gemini_model:
+            return {"error": "Gemini API not available"}
+        
+        # Extract video content information
+        video_summary = deep_search_data.get('summary', '')
+        video_chapters = deep_search_data.get('chapters', [])
+        video_analysis = deep_search_data.get('analysis', '')
+        
+        # Create chapter summary
+        chapter_summary = ""
+        if video_chapters:
+            chapter_summary = "\n".join([
+                f"Chapter {ch.get('chapter_number', i+1)}: {ch.get('title', 'Untitled')} ({ch.get('start', 0)}s-{ch.get('end', 0)}s)"
+                for i, ch in enumerate(video_chapters)
+            ])
+        
+        # Build comprehensive prompt
+        prompt = f"""
+You are an expert influencer marketing analyst. Analyze this video content and provide comprehensive scoring for potential brand partnerships.
+
+COMPANY CONTEXT:
+- Company Values: {', '.join(company_values) if company_values else 'Not specified'}
+- Target Country: {company_country}
+- Brand Type: {'Luxury' if is_luxury else 'Regular'}
+
+VIDEO CONTENT ANALYSIS:
+Video Summary: {video_summary}
+
+Video Chapters:
+{chapter_summary}
+
+Additional Analysis: {video_analysis}
+
+COMPREHENSIVE SCORING CRITERIA (provide scores 0-100 for each):
+
+1. CONTENT QUALITY (0-100): Evaluate the overall production quality and professionalism:
+   - Video production value (lighting, editing, audio)
+   - Content structure and pacing
+   - Visual appeal and engagement
+   - Professional presentation
+   - Score 90-100 for exceptional quality, 70-89 for good quality, 50-69 for average, 30-49 for below average, 0-29 for poor
+
+2. VALUES ALIGNMENT (0-100): Analyze content themes against company values:
+   - Content messaging alignment with brand values
+   - Audience demographics and psychographics fit
+   - Brand safety and reputation compatibility
+   - Authenticity of potential partnership
+   - Score 90-100 for perfect alignment, 70-89 for good fit, 50-69 for moderate fit, 30-49 for poor fit, 0-29 for no alignment
+
+3. ENGAGEMENT POTENTIAL (0-100): Assess audience engagement and interaction quality:
+   - Content encourages viewer interaction
+   - Educational or entertainment value
+   - Community building potential
+   - Call-to-action effectiveness
+   - Score 90-100 for high engagement potential, 70-89 for good potential, 50-69 for moderate, 30-49 for low, 0-29 for very low
+
+4. BRAND SAFETY (0-100): Evaluate content appropriateness for brand association:
+   - Content is family-friendly and professional
+   - No controversial or risky topics
+   - Positive messaging and tone
+   - Suitable for brand association
+   - Score 90-100 for excellent brand safety, 70-89 for good, 50-69 for moderate, 30-49 for concerning, 0-29 for high risk
+
+5. CULTURAL FIT (0-100): Assess cultural compatibility with target market:
+   - Content resonates with target demographic
+   - Cultural references and language appropriateness
+   - Market penetration potential
+   - Regional relevance
+   - Score 90-100 for perfect cultural fit, 70-89 for good fit, 50-69 for moderate, 30-49 for poor fit, 0-29 for incompatible
+
+6. INFLUENCE POTENTIAL (0-100): Evaluate the creator's ability to influence purchasing decisions:
+   - Trust and credibility with audience
+   - Expertise in relevant topics
+   - Past partnership success indicators
+   - Audience loyalty and following
+   - Score 90-100 for high influence potential, 70-89 for good potential, 50-69 for moderate, 30-49 for low, 0-29 for very low
+
+7. CONTENT CONSISTENCY (0-100): Assess content quality and theme consistency:
+   - Regular upload schedule and frequency
+   - Consistent content themes and topics
+   - Quality maintenance over time
+   - Professional growth trajectory
+   - Score 90-100 for excellent consistency, 70-89 for good, 50-69 for moderate, 30-49 for inconsistent, 0-29 for very inconsistent
+
+8. AUDIENCE QUALITY (0-100): Evaluate the target audience characteristics:
+   - Audience demographics match brand target
+   - Engagement quality and authenticity
+   - Purchasing power and intent
+   - Community health and positivity
+   - Score 90-100 for ideal audience, 70-89 for good audience, 50-69 for moderate, 30-49 for poor fit, 0-29 for very poor fit
+
+IMPORTANT: Provide varied, realistic scores that reflect genuine differences. Use the full 0-100 range meaningfully. Avoid clustering scores around 50-80.
+
+For reasoning fields, keep each analysis to 25 words or less - be concise and direct.
+
+Respond with ONLY a JSON object in this exact format:
+{{
+  "content_quality_score": 85,
+  "values_alignment_score": 70,
+  "engagement_potential_score": 90,
+  "brand_safety_score": 95,
+  "cultural_fit_score": 75,
+  "influence_potential_score": 80,
+  "content_consistency_score": 85,
+  "audience_quality_score": 78,
+  "overall_score": 82,
+  "reasoning": {{
+    "content_quality": "Brief content quality analysis (max 25 words)",
+    "values_alignment": "Concise values alignment assessment (max 25 words)",
+    "engagement_potential": "Short engagement potential summary (max 25 words)",
+    "brand_safety": "Brief brand safety note (max 25 words)",
+    "cultural_fit": "Concise cultural fit summary (max 25 words)",
+    "influence_potential": "Brief influence potential analysis (max 25 words)",
+    "content_consistency": "Short consistency assessment (max 25 words)",
+    "audience_quality": "Concise audience quality summary (max 25 words)"
+  }},
+  "recommendations": [
+    "Specific recommendation 1 for brand partnership",
+    "Specific recommendation 2 for content strategy",
+    "Specific recommendation 3 for collaboration approach"
+  ],
+  "risk_factors": [
+    "Potential risk factor 1 if any",
+    "Potential risk factor 2 if any"
+  ],
+  "strengths": [
+    "Key strength 1 of this creator",
+    "Key strength 2 of this creator",
+    "Key strength 3 of this creator"
+  ]
+}}
+"""
+        
+        try:
+            response = self.gemini_model.generate_content(prompt)
+            response_text = response.text.strip()
+            
+            # Parse JSON response
+            import json
+            start = response_text.find('{')
+            end = response_text.rfind('}') + 1
+            if start != -1 and end > start:
+                analysis_data = json.loads(response_text[start:end+1])
+                
+                # Calculate overall score as weighted average
+                scores = [
+                    analysis_data.get('content_quality_score', 0),
+                    analysis_data.get('values_alignment_score', 0),
+                    analysis_data.get('engagement_potential_score', 0),
+                    analysis_data.get('brand_safety_score', 0),
+                    analysis_data.get('cultural_fit_score', 0),
+                    analysis_data.get('influence_potential_score', 0),
+                    analysis_data.get('content_consistency_score', 0),
+                    analysis_data.get('audience_quality_score', 0)
+                ]
+                
+                # Weighted scoring (brand safety and values alignment are most important)
+                weights = [1.0, 1.5, 1.0, 1.5, 1.0, 1.2, 0.8, 1.0]
+                weighted_sum = sum(score * weight for score, weight in zip(scores, weights))
+                total_weight = sum(weights)
+                overall_score = round(weighted_sum / total_weight)
+                
+                analysis_data['overall_score'] = overall_score
+                analysis_data['analysis_timestamp'] = str(datetime.utcnow())
+                
+                return analysis_data
+            else:
+                raise ValueError("Invalid JSON response from Gemini")
+                
+        except Exception as e:
+            print(f"Error calling Gemini for deep search analysis: {e}")
+            return {"error": f"Analysis failed: {str(e)}"}
     
 
     # ==================== CACHING FUNCTIONS ====================
