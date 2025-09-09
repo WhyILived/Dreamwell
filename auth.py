@@ -566,11 +566,10 @@ def search_influencers():
 
             for i, row in enumerate(all_rows[:25]):  # hard cap to avoid overload
                 try:
-                    pricing = "Price not available"
-                    
-                    # Get CPM/RPM from ChannelCache
+                    # Get CPM/RPM and suggested pricing from ChannelCache
                     cpm_avg = None
                     rpm_avg = None
+                    pricing = "Price not available"
                     try:
                         from models import ChannelCache
                         ch = ChannelCache.query.filter_by(channel_id=row.get('channel_id')).first()
@@ -579,6 +578,9 @@ def search_influencers():
                                 cpm_avg = (float(ch.cpm_min_usd) + float(ch.cpm_max_usd)) / 2.0
                             if ch.rpm_min_usd is not None and ch.rpm_max_usd is not None:
                                 rpm_avg = (float(ch.rpm_min_usd) + float(ch.rpm_max_usd)) / 2.0
+                            # Use suggested pricing if available
+                            if ch.suggested_pricing_min_usd is not None and ch.suggested_pricing_max_usd is not None:
+                                pricing = f"${ch.suggested_pricing_min_usd:.0f} - ${ch.suggested_pricing_max_usd:.0f}"
                     except Exception:
                         pass
 
@@ -804,6 +806,8 @@ SCORING CRITERIA (provide scores 0-100 for each - BE DISCRIMINATING):
 
 IMPORTANT: Provide varied, realistic scores that reflect genuine differences. Avoid clustering scores around 50-80. Use the full 0-100 range meaningfully.
 
+For reasoning fields, keep each analysis to 20 words or less - be concise and direct.
+
 Respond with ONLY a JSON object in this exact format:
 {{
   "values_score": 85,
@@ -812,11 +816,11 @@ Respond with ONLY a JSON object in this exact format:
   "rpm_score": 75,
   "engagement_score": 80,
   "reasoning": {{
-    "values": "Specific analysis of values alignment with concrete examples",
-    "cultural": "Detailed cultural fit assessment with reasoning",
-    "cpm": "Cost efficiency analysis with specific metrics",
-    "rpm": "Revenue potential evaluation with market context",
-    "engagement": "Engagement quality assessment with specific indicators"
+    "values": "Brief values alignment analysis (max 20 words)",
+    "cultural": "Concise cultural fit assessment (max 20 words)",
+    "cpm": "Short cost efficiency summary (max 20 words)",
+    "rpm": "Brief revenue potential note (max 20 words)",
+    "engagement": "Concise engagement quality summary (max 20 words)"
   }}
 }}
 """

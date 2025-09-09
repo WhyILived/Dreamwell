@@ -450,6 +450,26 @@ class GemsAPI:
                 ch.engagement_rate = engagement_rate
                 ch.cpm_min_usd, ch.cpm_max_usd = est["cpm_usd"]
                 ch.rpm_min_usd, ch.rpm_max_usd = est["rpm_usd"]
+                
+                # Calculate suggested pricing based on CPM, RPM, and engagement
+                try:
+                    from cpm import calculate_suggested_pricing
+                    pricing_min, pricing_max = calculate_suggested_pricing(
+                        cpm_min=ch.cpm_min_usd or 0,
+                        cpm_max=ch.cpm_max_usd or 0,
+                        rpm_min=ch.rpm_min_usd or 0,
+                        rpm_max=ch.rpm_max_usd or 0,
+                        avg_recent_views=ch.avg_recent_views or 0,
+                        subscribers=ch.subscribers or 0,
+                        engagement_rate=ch.engagement_rate
+                    )
+                    ch.suggested_pricing_min_usd = pricing_min
+                    ch.suggested_pricing_max_usd = pricing_max
+                except Exception as e:
+                    print(f"Error calculating pricing for channel {cid}: {e}")
+                    ch.suggested_pricing_min_usd = None
+                    ch.suggested_pricing_max_usd = None
+                
                 # populate about/metadata from channel stats if present
                 cstat_full = ch_stats.get(cid, {})
                 ch.about_description = cstat_full.get('about_description')
@@ -545,7 +565,8 @@ class GemsAPI:
         out = {"name": None, "category": None, "keywords": []}
         try:
             # Fetch and truncate html
-            html = fetch(url)  # reuse scraper's fetch if imported, else fallback
+            from scraper import fetch
+            html = fetch(url)
         except Exception:
             try:
                 import requests

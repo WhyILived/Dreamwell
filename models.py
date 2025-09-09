@@ -154,6 +154,8 @@ class ChannelCache(db.Model):
     cpm_max_usd = db.Column(db.Float, nullable=True)
     rpm_min_usd = db.Column(db.Float, nullable=True)
     rpm_max_usd = db.Column(db.Float, nullable=True)
+    suggested_pricing_min_usd = db.Column(db.Float, nullable=True)
+    suggested_pricing_max_usd = db.Column(db.Float, nullable=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     def to_dict(self):
@@ -171,6 +173,8 @@ class ChannelCache(db.Model):
             'cpm_max_usd': self.cpm_max_usd,
             'rpm_min_usd': self.rpm_min_usd,
             'rpm_max_usd': self.rpm_max_usd,
+            'suggested_pricing_min_usd': self.suggested_pricing_min_usd,
+            'suggested_pricing_max_usd': self.suggested_pricing_max_usd,
         }
 
 class Product(db.Model):

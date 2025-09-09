@@ -182,3 +182,83 @@ if __name__ == "__main__":
     print(test)
 
 
+def calculate_suggested_pricing(cpm_min: float, cpm_max: float, rpm_min: float, rpm_max: float, 
+                               avg_recent_views: int, subscribers: int, engagement_rate: float = None) -> tuple[float, float]:
+    """
+    Calculate suggested pricing range for influencer partnerships based on CPM, RPM, and engagement metrics.
+    
+    Args:
+        cpm_min: Minimum CPM in USD
+        cpm_max: Maximum CPM in USD
+        rpm_min: Minimum RPM in USD
+        rpm_max: Maximum RPM in USD
+        avg_recent_views: Average views per video
+        subscribers: Total subscriber count
+        engagement_rate: Engagement rate (likes+comments/views) if available
+        
+    Returns:
+        tuple: (suggested_pricing_min_usd, suggested_pricing_max_usd)
+    """
+    if not avg_recent_views or avg_recent_views <= 0:
+        return 0.0, 0.0
+    
+    # Base pricing calculation using CPM as primary factor
+    # Typical influencer pricing is 1-3x CPM for 1000 views
+    base_pricing_per_1k_views = (cpm_min + cpm_max) / 2.0
+    
+    # Calculate base pricing for average views
+    base_pricing = (avg_recent_views / 1000.0) * base_pricing_per_1k_views
+    
+    # Apply multipliers based on various factors
+    
+    # 1. Subscriber count multiplier (more subscribers = higher pricing)
+    if subscribers:
+        if subscribers >= 1000000:  # 1M+ subscribers
+            sub_multiplier = 1.5
+        elif subscribers >= 500000:  # 500K+ subscribers
+            sub_multiplier = 1.3
+        elif subscribers >= 100000:  # 100K+ subscribers
+            sub_multiplier = 1.1
+        elif subscribers >= 10000:  # 10K+ subscribers
+            sub_multiplier = 1.0
+        else:  # < 10K subscribers
+            sub_multiplier = 0.8
+    else:
+        sub_multiplier = 1.0
+    
+    # 2. Engagement rate multiplier (higher engagement = higher pricing)
+    if engagement_rate and engagement_rate > 0:
+        if engagement_rate >= 0.1:  # 10%+ engagement
+            engagement_multiplier = 1.4
+        elif engagement_rate >= 0.05:  # 5%+ engagement
+            engagement_multiplier = 1.2
+        elif engagement_rate >= 0.02:  # 2%+ engagement
+            engagement_multiplier = 1.0
+        else:  # < 2% engagement
+            engagement_multiplier = 0.8
+    else:
+        engagement_multiplier = 1.0
+    
+    # 3. RPM-based quality multiplier (higher RPM = premium audience)
+    avg_rpm = (rpm_min + rpm_max) / 2.0
+    if avg_rpm >= 5.0:  # High RPM = premium audience
+        quality_multiplier = 1.3
+    elif avg_rpm >= 2.0:  # Medium RPM
+        quality_multiplier = 1.1
+    else:  # Lower RPM
+        quality_multiplier = 0.9
+    
+    # Apply all multipliers
+    adjusted_pricing = base_pricing * sub_multiplier * engagement_multiplier * quality_multiplier
+    
+    # Create pricing range (min = 80% of adjusted, max = 120% of adjusted)
+    pricing_min = adjusted_pricing * 0.8
+    pricing_max = adjusted_pricing * 1.2
+    
+    # Ensure minimum pricing of $50 for any partnership
+    pricing_min = max(pricing_min, 50.0)
+    pricing_max = max(pricing_max, pricing_min * 1.2)
+    
+    return round(pricing_min, 2), round(pricing_max, 2)
+
+
