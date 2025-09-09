@@ -234,3 +234,39 @@ class ScoringWeights(db.Model):
 
     def __repr__(self):
         return f'<ScoringWeights user_id={self.user_id}>'
+
+class AIScoreCache(db.Model):
+    """Cache for AI-generated influencer scores to avoid repeated API calls."""
+    __tablename__ = 'ai_score_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(db.String(50), nullable=False, index=True)
+    company_values_hash = db.Column(db.String(64), nullable=False)  # Hash of company values for cache key
+    company_country = db.Column(db.String(10), nullable=True)
+    is_luxury = db.Column(db.Boolean, nullable=False, default=False)
+    values_score = db.Column(db.Float, nullable=False)
+    cultural_score = db.Column(db.Float, nullable=False)
+    cpm_score = db.Column(db.Float, nullable=False)
+    rpm_score = db.Column(db.Float, nullable=False)
+    engagement_score = db.Column(db.Float, nullable=False)
+    reasoning = db.Column(db.Text, nullable=True)  # JSON string of reasoning
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    
+    def to_dict(self):
+        import json
+        return {
+            'id': self.id,
+            'channel_id': self.channel_id,
+            'raw_scores': {
+                'values': self.values_score,
+                'cultural': self.cultural_score,
+                'cpm': self.cpm_score,
+                'rpm': self.rpm_score,
+                'engagement': self.engagement_score
+            },
+            'reasoning': json.loads(self.reasoning) if self.reasoning else {},
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+    def __repr__(self):
+        return f'<AIScoreCache channel_id={self.channel_id}>'

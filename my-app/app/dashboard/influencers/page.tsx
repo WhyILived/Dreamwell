@@ -110,7 +110,14 @@ export default function InfluencersPage() {
       const outputs = await Promise.all(tasks)
       const map: Record<number, { results: any[]; averages: any }> = {}
       for (const o of outputs) {
-        map[o.id] = { results: o.data.influencers || [], averages: o.data.averages || { avg_views: 0, avg_score: 0 } }
+        const influencers = o.data.influencers || []
+        // Sort influencers by score (highest first)
+        const sortedInfluencers = influencers.sort((a: any, b: any) => {
+          const scoreA = typeof a.score === 'number' ? a.score : 0
+          const scoreB = typeof b.score === 'number' ? b.score : 0
+          return scoreB - scoreA
+        })
+        map[o.id] = { results: sortedInfluencers, averages: o.data.averages || { avg_views: 0, avg_score: 0 } }
       }
       setResultsByProduct(map)
       // Do not persist results to localStorage to avoid stale data after DB resets
@@ -162,10 +169,37 @@ export default function InfluencersPage() {
                   {entry.results.map((inf: any, i: number) => (
                     <div key={i} className="border rounded p-3">
                       <div className="flex items-center justify-between">
-                        <a href={inf.url || '#'} target="_blank" rel="noreferrer" className="font-medium hover:underline">{inf.title}</a>
-                        <div className="text-xs text-muted-foreground">{inf.country || 'Unknown,Country'}</div>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-sm font-bold text-primary">#{i + 1}</span>
+                          <a href={inf.url || '#'} target="_blank" rel="noreferrer" className="font-medium hover:underline">{inf.title}</a>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                          <div className="text-sm font-bold text-green-600">{typeof inf.score === 'number' ? inf.score.toFixed(1) : inf.score}</div>
+                          <div className="text-xs text-muted-foreground">{inf.country || 'Unknown'}</div>
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)} · ⭐ {inf.score}</div>
+                      <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)}</div>
+                      {inf.score_components && (
+                        <div className="mt-2 text-xs text-muted-foreground">
+                          <div className="grid grid-cols-2 gap-1">
+                            <span>Values: {inf.score_components.values}%</span>
+                            <span>Cultural: {inf.score_components.cultural}%</span>
+                            <span>CPM: {inf.score_components.cpm}%</span>
+                            <span>RPM: {inf.score_components.rpm}%</span>
+                            <span>Engagement: {inf.score_components.views_to_subs}%</span>
+                          </div>
+                          {inf.reasoning && Object.keys(inf.reasoning).length > 0 && (
+                            <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
+                              <div className="font-medium mb-1">AI Analysis:</div>
+                              {Object.entries(inf.reasoning).map(([key, value]) => (
+                                <div key={key} className="mb-1">
+                                  <span className="font-medium capitalize">{key}:</span> {String(value)}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                       {inf.recent_videos && inf.recent_videos.length>0 && (
                         <div className="mt-2 text-xs">
                           Recent: {inf.recent_videos.slice(0,2).map((v:any)=>v.title).join(' · ')}

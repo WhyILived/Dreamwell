@@ -549,6 +549,26 @@ def search_influencers():
                 print(f"  ⚠️  Skipping '{kw}' due to error: {e}")
 
         # Process results with scoring
+        # Load user and product data for scoring context
+        company_values = []
+        company_country = None
+        is_luxury = False
+        
+        try:
+            if user_id:
+                from models import User, Product
+                user = User.query.get(int(user_id))
+                if user and user.keywords:
+                    company_values = [k.strip() for k in user.keywords.split(',') if k.strip()]
+                company_country = user.country_code if user else None
+                
+                if product_id:
+                    product = Product.query.get(int(product_id))
+                    if product:
+                        is_luxury = product.is_luxury or False
+        except Exception as e:
+            print(f"DEBUG: Error loading user/product data: {e}")
+        
         # Load user's scoring weights
         user_weights = None
         try:
@@ -575,10 +595,7 @@ def search_influencers():
                 'views_to_subs_weight': 0.30
             }
         
-        # Context defaults
-        company_values = locals().get('company_values', [])
-        company_country = locals().get('company_country', None)
-        is_luxury = locals().get('is_luxury', None)
+        print(f"DEBUG: Company context - Values: {company_values}, Country: {company_country}, Luxury: {is_luxury}")
         processed_influencers = []
         avg_views = 0
         avg_score = 0
@@ -604,49 +621,8 @@ def search_influencers():
             for i, row in enumerate(all_rows[:25]):  # hard cap to avoid overload
                 try:
                     pricing = "Price not available"
-                    # Helpers
-                    def clamp01(v):
-                        try:
-                            return max(0.0, min(1.0, float(v)))
-                        except Exception:
-                            return 0.0
-                    def score_values_match(about_text: str) -> float:
-                        if not about_text or not company_values:
-                            return 0.5
-                        text = (about_text or '').lower()
-                        hits = sum(1 for v in company_values if v and v in text)
-                        return clamp01(hits / max(1, len(company_values)))
-                    def score_cultural(influencer_country: str) -> float:
-                        if not company_country or not influencer_country:
-                            return 0.5
-                        return 1.0 if (company_country or '').upper() == (influencer_country or '').upper() else 0.5
-                    def score_cpm(avg_cpm: float) -> float:
-                        if not avg_cpm or avg_cpm <= 0:
-                            return 0.5
-                        if avg_cpm <= 5: return 1.0
-                        if avg_cpm >= 40: return 0.0
-                        return clamp01((40 - avg_cpm) / 35)
-                    def score_rpm(avg_rpm: float) -> float:
-                        if not avg_rpm or avg_rpm <= 0:
-                            return 0.5
-                        if is_luxury:
-                            if avg_rpm <= 2: return 0.0
-                            if avg_rpm >= 20: return 1.0
-                            return clamp01((avg_rpm - 2) / 18)
-                        else:
-                            if avg_rpm <= 2: return 1.0
-                            if avg_rpm >= 20: return 0.0
-                            return clamp01((20 - avg_rpm) / 18)
-                    def score_ratio(avg_views: float, subs: float) -> float:
-                        try:
-                            subs = float(subs)
-                            if subs <= 0: return 0.5
-                            ratio = float(avg_views or 0) / subs
-                            return clamp01(ratio / 0.2)
-                        except Exception:
-                            return 0.5
-
-                    # CPM/RPM from ChannelCache
+                    
+                    # Get CPM/RPM from ChannelCache
                     cpm_avg = None
                     rpm_avg = None
                     try:
@@ -660,21 +636,63 @@ def search_influencers():
                     except Exception:
                         pass
 
-                    s_values = score_values_match(row.get('about_description') or row.get('description'))
-                    s_culture = score_cultural(row.get('country'))
-                    s_cpm = score_cpm(cpm_avg if cpm_avg is not None else 0)
-                    s_rpm = score_rpm(rpm_avg if rpm_avg is not None else 0)
-                    s_ratio = score_ratio(row.get('avg_recent_views') or 0, row.get('subs') or 0)
-
-                    # Use user's custom weights
-                    weighted = (
-                        s_values * user_weights['values_weight'] +
-                        s_culture * user_weights['cultural_weight'] +
-                        s_cpm * user_weights['cpm_weight'] +
-                        s_rpm * user_weights['rpm_weight'] +
-                        s_ratio * user_weights['views_to_subs_weight']
-                    )
-                    final_score_100 = round(weighted * 100, 1)
+                    # Call AI scoring API
+                    try:
+                        import requests
+                        scoring_response = requests.post('http://localhost:5000/api/auth/score-influencer', 
+                            json={
+                                'influencer_data': {
+                                    'channel_id': row.get('channel_id', ''),
+                                    'title': row.get('title', ''),
+                                    'about_description': row.get('about_description', ''),
+                                    'description': row.get('description', ''),
+                                    'country': row.get('country', ''),
+                                    'avg_recent_views': row.get('avg_recent_views', 0),
+                                    'subs': row.get('subs', 0),
+                                    'cpm_avg': cpm_avg,
+                                    'rpm_avg': rpm_avg
+                                },
+                                'company_values': company_values,
+                                'company_country': company_country,
+                                'is_luxury': is_luxury,
+                                'user_weights': user_weights
+                            },
+                            timeout=30
+                        )
+                        
+                        if scoring_response.status_code == 200:
+                            scoring_data = scoring_response.json()
+                            raw_scores = scoring_data.get('raw_scores', {})
+                            reasoning = scoring_data.get('reasoning', {})
+                            
+                            # Apply user weights to calculate final score
+                            final_score = (
+                                raw_scores.get('values', 50) * user_weights.get('values_weight', 0.20) +
+                                raw_scores.get('cultural', 50) * user_weights.get('cultural_weight', 0.10) +
+                                raw_scores.get('cpm', 50) * user_weights.get('cpm_weight', 0.20) +
+                                raw_scores.get('rpm', 50) * user_weights.get('rpm_weight', 0.20) +
+                                raw_scores.get('engagement', 50) * user_weights.get('views_to_subs_weight', 0.30)
+                            )
+                            
+                            component_scores = {
+                                "values": raw_scores.get('values', 50),
+                                "cultural": raw_scores.get('cultural', 50),
+                                "cpm": raw_scores.get('cpm', 50),
+                                "rpm": raw_scores.get('rpm', 50),
+                                "views_to_subs": raw_scores.get('engagement', 50)
+                            }
+                        else:
+                            # Fallback to simple scoring if AI fails
+                            final_score = 50.0
+                            component_scores = {"values": 50, "cultural": 50, "cpm": 50, "rpm": 50, "views_to_subs": 50}
+                            reasoning = {}
+                            
+                    except Exception as e:
+                        print(f"DEBUG: Error calling AI scoring for influencer {i}: {e}")
+                        # Fallback to simple scoring
+                        final_score = 50.0
+                        component_scores = {"values": 50, "cultural": 50, "cpm": 50, "rpm": 50, "views_to_subs": 50}
+                        reasoning = {}
 
                     processed_influencers.append({
                         "id": i + 1,
@@ -682,15 +700,16 @@ def search_influencers():
                         "subs": row.get('subs', 'Unknown'),
                         "views": row.get('views', 'Unknown'),
                         "avg_recent_views": row.get('avg_recent_views'),
-                        "score": final_score_100,
+                        "score": final_score,
                         "country": row.get('country'),
                         "score_components": {
-                            "values": round(s_values * 100, 1),
-                            "cultural": round(s_culture * 100, 1),
-                            "cpm": round(s_cpm * 100, 1),
-                            "rpm": round(s_rpm * 100, 1),
-                            "views_to_subs": round(s_ratio * 100, 1)
+                            "values": component_scores.get('values', 50),
+                            "cultural": component_scores.get('cultural', 50),
+                            "cpm": component_scores.get('cpm', 50),
+                            "rpm": component_scores.get('rpm', 50),
+                            "views_to_subs": component_scores.get('engagement', 50)
                         },
+                        "reasoning": reasoning,
                         "cpm_avg": cpm_avg,
                         "rpm_avg": rpm_avg,
                         "pricing": pricing,
@@ -726,6 +745,172 @@ def search_influencers():
         
     except Exception as e:
         print(f"DEBUG: Error searching influencers: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/score-influencer', methods=['POST'])
+def score_influencer():
+    """Score a single influencer using Gemini AI for accurate evaluation with caching"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Required fields
+        influencer_data = data.get('influencer_data', {})
+        company_values = data.get('company_values', [])
+        company_country = data.get('company_country')
+        is_luxury = data.get('is_luxury', False)
+        user_weights = data.get('user_weights', {})
+        
+        print(f"DEBUG: AI Scoring API received - Company Values: {company_values}, Country: {company_country}, Luxury: {is_luxury}")
+        
+        if not influencer_data:
+            return jsonify({"error": "Influencer data is required"}), 400
+        
+        # Check cache first
+        channel_id = influencer_data.get('channel_id') or influencer_data.get('title', '')
+        if channel_id:
+            import hashlib
+            import json
+            from models import AIScoreCache
+            
+            # Create cache key from company values
+            values_str = json.dumps(sorted(company_values), sort_keys=True) if company_values else ""
+            values_hash = hashlib.md5(values_str.encode()).hexdigest()
+            
+            # Check if we have cached results
+            cached = AIScoreCache.query.filter_by(
+                channel_id=channel_id,
+                company_values_hash=values_hash,
+                company_country=company_country,
+                is_luxury=is_luxury
+            ).first()
+            
+            if cached:
+                print(f"DEBUG: Using cached AI scores for channel {channel_id}")
+                return jsonify(cached.to_dict()), 200
+        
+        # Prepare context for Gemini
+        channel_title = influencer_data.get('title', '')
+        channel_description = influencer_data.get('about_description', '') or influencer_data.get('description', '')
+        channel_country = influencer_data.get('country', '')
+        avg_views = influencer_data.get('avg_recent_views', 0)
+        subscribers = influencer_data.get('subs', 0)
+        cpm_avg = influencer_data.get('cpm_avg')
+        rpm_avg = influencer_data.get('rpm_avg')
+        
+        # Create comprehensive prompt for Gemini
+        prompt = f"""
+You are an expert influencer marketing analyst. Score this YouTube channel for brand partnership potential on a scale of 0-100.
+
+CHANNEL DETAILS:
+- Name: {channel_title}
+- Description: {channel_description}
+- Country: {channel_country}
+- Average Views per Video: {avg_views:,}
+- Subscribers: {subscribers:,}
+- CPM (Cost Per Mille): ${cpm_avg if cpm_avg else 'Unknown'}
+- RPM (Revenue Per Mille): ${rpm_avg if rpm_avg else 'Unknown'}
+
+COMPANY CONTEXT:
+- Company Values: {', '.join(company_values) if company_values else 'Not specified'}
+- Company Country: {company_country or 'Not specified'}
+- Product Type: {'Luxury' if is_luxury else 'Regular'}
+
+SCORING CRITERIA (provide scores 0-100 for each):
+
+1. VALUES ALIGNMENT: How well do the channel's content themes, values, and audience align with the company's values and brand?
+
+2. CULTURAL FIT: How culturally compatible is the channel's audience and content with the company's target market and country?
+
+3. COST EFFICIENCY: Rate the cost-effectiveness based on CPM. Lower CPM = higher score. Consider if the pricing is reasonable for the reach.
+
+4. REVENUE POTENTIAL: Rate based on RPM and product type. For luxury goods, higher RPM is better. For regular products, moderate RPM is preferred.
+
+5. ENGAGEMENT QUALITY: Rate the views-to-subscribers ratio and overall engagement quality. Higher ratio indicates better audience engagement.
+
+Respond with ONLY a JSON object in this exact format:
+{{
+  "values_score": 85,
+  "cultural_score": 70,
+  "cpm_score": 90,
+  "rpm_score": 75,
+  "engagement_score": 80,
+  "reasoning": {{
+    "values": "Brief explanation of values alignment",
+    "cultural": "Brief explanation of cultural fit",
+    "cpm": "Brief explanation of cost efficiency",
+    "rpm": "Brief explanation of revenue potential",
+    "engagement": "Brief explanation of engagement quality"
+  }}
+}}
+"""
+        
+        # Call Gemini API
+        try:
+            import google.generativeai as genai
+            import os
+            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
+            response = model.generate_content(prompt)
+            response_text = response.text.strip()
+            
+            # Parse JSON response
+            import json
+            start = response_text.find('{')
+            end = response_text.rfind('}') + 1
+            if start != -1 and end > start:
+                scores_data = json.loads(response_text[start:end])
+            else:
+                raise ValueError("Invalid JSON response from Gemini")
+                
+        except Exception as e:
+            print(f"DEBUG: Error calling Gemini for scoring: {e}")
+            # Fallback to internal scoring if Gemini fails
+            return jsonify({"error": "Scoring service unavailable"}), 500
+        
+        # Cache the results
+        if channel_id:
+            try:
+                from models import AIScoreCache, db
+                
+                # Create new cache entry
+                cache_entry = AIScoreCache(
+                    channel_id=channel_id,
+                    company_values_hash=values_hash,
+                    company_country=company_country,
+                    is_luxury=is_luxury,
+                    values_score=scores_data.get('values_score', 50),
+                    cultural_score=scores_data.get('cultural_score', 50),
+                    cpm_score=scores_data.get('cpm_score', 50),
+                    rpm_score=scores_data.get('rpm_score', 50),
+                    engagement_score=scores_data.get('engagement_score', 50),
+                    reasoning=json.dumps(scores_data.get('reasoning', {}))
+                )
+                
+                db.session.add(cache_entry)
+                db.session.commit()
+                print(f"DEBUG: Cached AI scores for channel {channel_id}")
+                
+            except Exception as e:
+                print(f"DEBUG: Error caching AI scores: {e}")
+                # Continue without caching if there's an error
+        
+        # Return raw scores without applying weights
+        return jsonify({
+            "raw_scores": {
+                "values": scores_data.get('values_score', 50),
+                "cultural": scores_data.get('cultural_score', 50),
+                "cpm": scores_data.get('cpm_score', 50),
+                "rpm": scores_data.get('rpm_score', 50),
+                "engagement": scores_data.get('engagement_score', 50)
+            },
+            "reasoning": scores_data.get('reasoning', {})
+        }), 200
+        
+    except Exception as e:
+        print(f"DEBUG: Error in score-influencer: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 @auth_bp.route('/scoring-weights', methods=['GET'])
