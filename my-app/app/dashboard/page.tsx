@@ -104,9 +104,27 @@ export default function BrandProfilePage() {
       if (response.ok) {
         const data = await response.json()
         const generatedKeywords = data.keywords || []
-        setBrandData(prev => ({ ...prev, keywords: generatedKeywords }))
-        setSelectedKeywords(generatedKeywords)
-        alert(`Generated ${generatedKeywords.length} keywords from your website!`)
+        
+        // Add new keywords to existing ones (avoid duplicates)
+        setBrandData(prev => {
+          const existingKeywords = prev.keywords || []
+          const newKeywords = generatedKeywords.filter(keyword => 
+            !existingKeywords.includes(keyword)
+          )
+          const updatedKeywords = [...existingKeywords, ...newKeywords]
+          return { ...prev, keywords: updatedKeywords }
+        })
+        
+        // Add new keywords to selected keywords as well
+        setSelectedKeywords(prev => {
+          const existingSelected = prev || []
+          const newKeywords = generatedKeywords.filter(keyword => 
+            !existingSelected.includes(keyword)
+          )
+          return [...existingSelected, ...newKeywords]
+        })
+        
+        alert(`Generated ${generatedKeywords.length} new keywords from your website!`)
       } else {
         throw new Error('Failed to generate keywords')
       }
