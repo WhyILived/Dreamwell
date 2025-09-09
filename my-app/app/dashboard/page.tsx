@@ -70,18 +70,42 @@ export default function BrandProfilePage() {
     }
   }
 
-  const handleAddKeyword = () => {
+  const handleAddKeyword = async () => {
     if (newKeyword.trim() && !brandData.keywords.includes(newKeyword.trim())) {
       const updatedKeywords = [...brandData.keywords, newKeyword.trim()]
       setBrandData(prev => ({ ...prev, keywords: updatedKeywords }))
-      setNewKeyword("")
+      
+      // Save to database
+      try {
+        await updateProfile({
+          company_name: brandData.companyName,
+          website: brandData.website,
+          keywords: updatedKeywords.join(', '),
+        })
+        setNewKeyword("")
+      } catch (error) {
+        console.error("Failed to save keyword:", error)
+        alert("Failed to save keyword. Please try again.")
+      }
     }
   }
 
-  const handleRemoveKeyword = (keyword: string) => {
+  const handleRemoveKeyword = async (keyword: string) => {
     const updatedKeywords = brandData.keywords.filter(k => k !== keyword)
     setBrandData(prev => ({ ...prev, keywords: updatedKeywords }))
     setSelectedKeywords(prev => prev.filter(k => k !== keyword))
+    
+    // Save to database
+    try {
+      await updateProfile({
+        company_name: brandData.companyName,
+        website: brandData.website,
+        keywords: updatedKeywords.join(', '),
+      })
+    } catch (error) {
+      console.error("Failed to remove keyword:", error)
+      alert("Failed to remove keyword. Please try again.")
+    }
   }
 
   const handleGenerateKeywords = async () => {
@@ -98,22 +122,22 @@ export default function BrandProfilePage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ website: brandData.website }),
+        body: JSON.stringify({ 
+          website: brandData.website,
+          user_id: user?.id 
+        }),
       })
 
       if (response.ok) {
         const data = await response.json()
         const generatedKeywords = data.keywords || []
+        const allKeywords = data.all_keywords || []
         
-        // Add new keywords to existing ones (avoid duplicates)
-        setBrandData(prev => {
-          const existingKeywords = prev.keywords || []
-          const newKeywords = generatedKeywords.filter(keyword => 
-            !existingKeywords.includes(keyword)
-          )
-          const updatedKeywords = [...existingKeywords, ...newKeywords]
-          return { ...prev, keywords: updatedKeywords }
-        })
+        // Update the keywords from the database response
+        setBrandData(prev => ({
+          ...prev,
+          keywords: allKeywords
+        }))
         
         // Add new keywords to selected keywords as well
         setSelectedKeywords(prev => {

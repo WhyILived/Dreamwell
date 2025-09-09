@@ -177,8 +177,21 @@ def scrape_company_keywords(url: str, top_n: int = TOP_N_DEFAULT) -> List[Tuple[
     buckets = extract_weighted_text(html_text)
     return score_keywords(buckets, top_n)
 
-# ---------------- CLI ----------------
-def scrape(url = "https://www.dreamwell.ai", top_n=5):
+# ---------------- GEMINI AI KEYWORD GENERATION ----------------
+def scrape_with_gemini(url="https://www.dreamwell.ai", top_n=5):
+    """
+    Generate keywords using Gemini AI via gems.py
+    """
+    try:
+        from gems import generate_keywords
+        return generate_keywords(url, top_n)
+    except Exception as e:
+        print(f"❌ Error with Gemini keyword generation: {e}")
+        print("🔄 Falling back to traditional scraping...")
+        return scrape_traditional(url, top_n)
+
+def scrape_traditional(url="https://www.dreamwell.ai", top_n=5):
+    """Traditional keyword scraping method (fallback)"""
     t0 = time.time()
     res = []
     try:
@@ -199,5 +212,13 @@ def scrape(url = "https://www.dreamwell.ai", top_n=5):
         print(f"Unexpected error: {e}")
         sys.exit(4)
     return res
+
+# ---------------- CLI ----------------
+def scrape(url = "https://www.dreamwell.ai", top_n=5):
+    """
+    Main scrape function - now uses Gemini AI by default
+    Falls back to traditional method if Gemini fails
+    """
+    return scrape_with_gemini(url, top_n)
 #if __name__ == "__main__":
     #scrape()

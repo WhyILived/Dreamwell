@@ -329,6 +329,7 @@ def export_csv(rows: List[Dict[str, Any]], path="influencers.csv"):
         w.writeheader(); w.writerows(rows)
 
 def search(keywords="wireless earbuds review"):
+    """Original search function using YTInfluencerFinder"""
     load_dotenv()
     api_key = os.getenv("YOUTUBE_API_KEY") or ""
     if not api_key:
@@ -366,6 +367,139 @@ def search(keywords="wireless earbuds review"):
             r.get("engagement_rate"),
             r.get("score")
         )
+
+def search_with_filters(keywords="wireless earbuds review", max_results: int = 50):
+    """
+    New search function using filtered search from gems.py
+    Searches for videos uploaded within the last year, sorted by view count
+    """
+    try:
+        from gems import search_recent_popular_videos, GemsAPI
+        from datetime import datetime, timedelta
+        
+        print(f"🔍 Searching for recent popular videos with keywords: {keywords}")
+        print("📅 Filter: Videos uploaded within the last year")
+        print("📊 Sort: By view count (most popular first)")
+        
+        # Search for recent popular videos (with caching)
+        # videos now returns list of video_ids per our cache layer
+        video_ids = search_recent_popular_videos(keywords, max_results=max_results, use_cache=True)
+        # retrieve metadata for those IDs from VideoCache
+        from models import VideoCache, db
+        videos = []
+        if video_ids:
+            try:
+                for vid in video_ids:
+                    vc = VideoCache.query.filter_by(video_id=vid).first()
+                    if vc:
+                        videos.append({
+                            'video_id': vc.video_id,
+                            'title': vc.title,
+                            'description': vc.description,
+                            'thumbnail': vc.thumbnail,
+                            'published_at': vc.published_at,
+                            'channel_id': vc.channel_id,
+                            'channel_title': vc.channel_title
+                        })
+            except Exception:
+                pass
+        
+        if not videos:
+            print("❌ No videos found with the given filters")
+            print("🔄 This might be due to YouTube API quota limits or no recent content found")
+            print("🔄 Falling back to original search method...")
+            return search(keywords)  # Fallback to original method
+        
+        print(f"✅ Found {len(videos)} recent popular videos")
+        
+        # Extract unique channels from videos
+        channels = {}
+        for video in videos:
+            channel_id = video['channel_id']
+            if channel_id not in channels:
+                channels[channel_id] = {
+                    'channel_id': channel_id,
+                    'title': video['channel_title'],
+                    'video_count': 0,
+                    'total_views': 0,
+                    'recent_videos': [],
+                    'search_keywords': keywords
+                }
+            
+            channels[channel_id]['video_count'] += 1
+            channels[channel_id]['recent_videos'].append(video)
+        
+        # Enrich with channel stats and recent video view stats to compute avg recent views
+        gems_client = GemsAPI()
+        channel_ids = list(channels.keys())
+        ch_stats = gems_client.get_channels_stats(channel_ids)
+
+        # gather video ids for stats
+        all_vids = [v['video_id'] for ch in channels.values() for v in ch['recent_videos']]
+        v_stats = gems_client.get_videos_stats(all_vids)
+
+        # Attach full transcripts per video where available (no OAuth)
+        for ch in channels.values():
+            for v in ch['recent_videos']:
+                try:
+                    v['transcript'] = gems_client.get_video_transcript(v['video_id']) or None
+                except Exception:
+                    v['transcript'] = None
+
+        # Convert to list and add basic scoring
+        results = []
+        for channel_id, channel_data in channels.items():
+            # Average recent views from fetched per-video stats (closest proxy)
+            views_list = [v_stats.get(v['video_id'], {}).get('views', 0) for v in channel_data['recent_videos']]
+            avg_recent_views = sum(views_list) / max(1, len(views_list))
+
+            # Channel-level stats
+            cstats = ch_stats.get(channel_id, {})
+            subscriber_count = cstats.get('subscriber_count')
+            country = cstats.get('country')
+
+            # Simple scoring using recent video count (kept lightweight)
+            score = channel_data['video_count'] * 10
+            
+            result = {
+                'channel_id': channel_id,
+                'title': channel_data['title'],
+                'subs': subscriber_count if subscriber_count is not None else 'Unknown',
+                'video_count': channel_data['video_count'],
+                'avg_recent_views': round(avg_recent_views),
+                'recent_videos_count': len(channel_data['recent_videos']),
+                'recent_videos': [
+                    {
+                        'video_id': v.get('video_id'),
+                        'title': v.get('title'),
+                        'transcript': v.get('transcript')
+                    } for v in channel_data['recent_videos']
+                ],
+                'score': score,
+                'country': country or 'Unknown',
+                'search_keywords': keywords,
+                'filters_applied': 'Recent (1 year) + Popular (view count)'
+            }
+            results.append(result)
+        
+        # Sort by score
+        results.sort(key=lambda x: x['score'], reverse=True)
+        
+        # Export to CSV
+        export_csv(results, "influencers.csv")
+        
+        print(f"\n📊 Top 5 channels with recent popular content:")
+        for i, r in enumerate(results[:5], 1):
+            print(f"{i}. {r['title']} - {r['recent_videos_count']} recent videos (score: {r['score']})")
+        
+        return results
+        
+    except Exception as e:
+        print(f"❌ Error in filtered search: {e}")
+        if "quota" in str(e).lower():
+            print("⚠️  YouTube API quota exceeded. Please try again later or check your API usage.")
+        print("🔄 Falling back to original search method...")
+        return search(keywords)  # Fallback to original method
 
 #f __name__ == "__main__":
     #search()

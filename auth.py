@@ -271,22 +271,55 @@ def generate_keywords():
             return jsonify({"error": "Website URL is required"}), 400
         
         website = data['website'].strip()
+        user_id = data.get('user_id')  # Get user ID to save keywords
+        
         if not website:
             return jsonify({"error": "Website URL cannot be empty"}), 400
+        
+        if not user_id:
+            return jsonify({"error": "User ID is required to save keywords"}), 400
         
         # Import scraper here to avoid circular imports
         from scraper import scrape
         
         print(f"DEBUG: Generating keywords for website: {website}")
         
-        # Generate keywords using the scraper (same as main.py)
+        # Generate keywords using the scraper
         keywords = scrape(website, top_n=5)
         
         print(f"DEBUG: Generated keywords: {keywords}")
         
+        # Save keywords to user profile
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Convert keywords list to comma-separated string
+        keywords_string = ', '.join(keywords)
+        
+        # Get existing keywords and add new ones (avoid duplicates)
+        existing_keywords = user.keywords.split(', ') if user.keywords else []
+        existing_keywords = [k.strip() for k in existing_keywords if k.strip()]
+        
+        # Add new keywords that don't already exist
+        new_keywords = []
+        for keyword in keywords:
+            if keyword not in existing_keywords:
+                new_keywords.append(keyword)
+        
+        # Combine existing and new keywords
+        all_keywords = existing_keywords + new_keywords
+        user.keywords = ', '.join(all_keywords)
+        
+        db.session.commit()
+        
+        print(f"DEBUG: Saved keywords to user profile: {user.keywords}")
+        
         return jsonify({
-            "message": "Keywords generated successfully",
+            "message": "Keywords generated and saved successfully",
             "keywords": keywords,
+            "new_keywords": new_keywords,
+            "all_keywords": all_keywords,
             "count": len(keywords)
         }), 200
         
@@ -307,82 +340,75 @@ def search_influencers():
             return jsonify({"error": "At least one keyword is required"}), 400
         
         # Import extract here to avoid circular imports
-        from extract import search
-        import csv
-        import os
-        import google.generativeai as genai
+        from extract import search_with_filters
+        # pricing temporarily removed; no Gemini imports
         
         print(f"DEBUG: Searching for influencers with keywords: {keywords}")
         
-        # Use the first keyword for the search
-        first_keyword = keywords[0] if keywords else "influencer marketing"
-        
-        # Search for influencers (this generates the CSV)
-        print(f"DEBUG: Running search with keyword: {first_keyword}")
-        search(first_keyword)  # This generates influencers.csv
-        
-        print(f"DEBUG: Search completed, now reading CSV data")
-        
-        # Process CSV results and get pricing
+        # Aggregate results: top 5 per keyword
+        print("DEBUG: Running filtered search: top 5 per keyword")
+        all_rows = []
+        for kw in keywords:
+            print(f"  → Searching for: {kw}")
+            try:
+                rows = search_with_filters(kw, max_results=5) or []
+                # Tag each row with originating keyword
+                for r in rows:
+                    r["origin_keyword"] = kw
+                all_rows.extend(rows)
+            except Exception as e:
+                print(f"  ⚠️  Skipping '{kw}' due to error: {e}")
+
+        # Process results (pricing removed)
         processed_influencers = []
-        csv_file = "influencers.csv"
-        
-        if os.path.exists(csv_file):
-            # Read CSV and calculate averages
-            with open(csv_file, 'r', encoding='utf-8') as file:
-                csv_reader = csv.DictReader(file)
-                rows = list(csv_reader)
-                
-                if rows:
-                    # Calculate averages
-                    total_views = sum(int(row.get('views', 0)) for row in rows if row.get('views', '').isdigit())
-                    total_score = sum(float(row.get('score', 0)) for row in rows if row.get('score', '').replace('.', '').isdigit())
-                    avg_views = total_views / len(rows) if rows else 0
-                    avg_score = total_score / len(rows) if rows else 0
-                    
-                    # Get Gemini API pricing for each influencer
-                    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-                    model = genai.GenerativeModel('gemini-pro')
-                    
-                    for i, row in enumerate(rows[:10]):  # Process top 10 influencers
-                        try:
-                            # Get pricing from Gemini
-                            prompt = f"""
-                            Based on this YouTube influencer's stats, estimate the sponsorship value in USD:
-                            - Channel: {row.get('title', 'Unknown')}
-                            - Subscribers: {row.get('subs', 'Unknown')}
-                            - Views: {row.get('views', 'Unknown')}
-                            - Score: {row.get('score', 'Unknown')}
-                            
-                            Provide a realistic sponsorship price range in USD (e.g., "$500-$2000" or "$100-$500").
-                            Consider factors like subscriber count, engagement, and niche relevance.
-                            """
-                            
-                            response = model.generate_content(prompt)
-                            pricing = response.text.strip() if response.text else "Price not available"
-                            
-                            processed_influencers.append({
-                                "id": i + 1,
-                                "title": row.get('title', 'Unknown'),
-                                "subs": row.get('subs', 'Unknown'),
-                                "views": row.get('views', 'Unknown'),
-                                "score": row.get('score', 'Unknown'),
-                                "pricing": pricing,
-                                "url": row.get('url', ''),
-                                "description": row.get('description', '')
-                            })
-                        except Exception as e:
-                            print(f"DEBUG: Error getting pricing for influencer {i}: {str(e)}")
-                            processed_influencers.append({
-                                "id": i + 1,
-                                "title": row.get('title', 'Unknown'),
-                                "subs": row.get('subs', 'Unknown'),
-                                "views": row.get('views', 'Unknown'),
-                                "score": row.get('score', 'Unknown'),
-                                "pricing": "Price not available",
-                                "url": row.get('url', ''),
-                                "description": row.get('description', '')
-                            })
+        avg_views = 0
+        avg_score = 0
+
+        if all_rows:
+            # Calculate averages
+            def to_int_safe(x):
+                try:
+                    return int(x)
+                except Exception:
+                    return 0
+            def to_float_safe(x):
+                try:
+                    return float(x)
+                except Exception:
+                    return 0.0
+
+            total_views = sum(to_int_safe(r.get('views', 0)) for r in all_rows)
+            total_score = sum(to_float_safe(r.get('score', 0)) for r in all_rows)
+            avg_views = total_views / len(all_rows) if all_rows else 0
+            avg_score = total_score / len(all_rows) if all_rows else 0
+
+            for i, row in enumerate(all_rows[:25]):  # hard cap to avoid overload
+                try:
+                    pricing = "Price not available"
+                    processed_influencers.append({
+                        "id": i + 1,
+                        "title": row.get('title', 'Unknown'),
+                        "subs": row.get('subs', 'Unknown'),
+                        "views": row.get('views', 'Unknown'),
+                        "score": row.get('score', 'Unknown'),
+                        "pricing": pricing,
+                        "url": row.get('url', ''),
+                        "description": row.get('description', ''),
+                        "origin_keyword": row.get('origin_keyword', '')
+                    })
+                except Exception as e:
+                    print(f"DEBUG: Error getting pricing for influencer {i}: {str(e)}")
+                    processed_influencers.append({
+                        "id": i + 1,
+                        "title": row.get('title', 'Unknown'),
+                        "subs": row.get('subs', 'Unknown'),
+                        "views": row.get('views', 'Unknown'),
+                        "score": row.get('score', 'Unknown'),
+                        "pricing": "Price not available",
+                        "url": row.get('url', ''),
+                        "description": row.get('description', ''),
+                        "origin_keyword": row.get('origin_keyword', '')
+                    })
         
         return jsonify({
             "message": "Influencer search completed",

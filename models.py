@@ -1,6 +1,6 @@
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
-from datetime import datetime
+from datetime import datetime, timedelta
 
 db = SQLAlchemy()
 bcrypt = Bcrypt()
@@ -49,3 +49,86 @@ class User(db.Model):
     
     def __repr__(self):
         return f'<User {self.email}>'
+
+class YouTubeSearchCache(db.Model):
+    """Cache for YouTube search results to reduce API calls"""
+    __tablename__ = 'youtube_search_cache'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    keywords = db.Column(db.String(500), nullable=False, index=True)
+    search_type = db.Column(db.String(50), nullable=False)  # 'channels', 'videos', 'influencers'
+    filters_applied = db.Column(db.Text, nullable=True)  # JSON string of filters
+    results_data = db.Column(db.Text, nullable=False)  # JSON string of search results
+    result_count = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)  # Cache expiration time
+    
+    def __init__(self, keywords, search_type, results_data, filters_applied=None, cache_duration_hours=24):
+        self.keywords = keywords
+        self.search_type = search_type
+        self.results_data = results_data
+        self.filters_applied = filters_applied
+        try:
+            parsed = results_data if isinstance(results_data, list) else []
+            # If string JSON passed, len(list) will be computed in save path (gems)
+            self.result_count = len(parsed)
+        except Exception:
+            self.result_count = 0
+        # Cache expires after specified hours (default 24 hours)
+        self.expires_at = datetime.utcnow() + timedelta(hours=cache_duration_hours)
+    
+    def is_expired(self):
+        """Check if cache entry has expired"""
+        return datetime.utcnow() > self.expires_at
+    
+    def to_dict(self):
+        """Convert cache entry to dictionary"""
+        return {
+            'id': self.id,
+            'keywords': self.keywords,
+            'search_type': self.search_type,
+            'filters_applied': self.filters_applied,
+            'result_count': self.result_count,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'is_expired': self.is_expired()
+        }
+    
+    def __repr__(self):
+        return f'<YouTubeSearchCache {self.keywords} ({self.search_type})>'
+
+class VideoCache(db.Model):
+    """Cache per-video details and transcript to avoid repeated fetches."""
+    __tablename__ = 'video_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    video_id = db.Column(db.String(32), unique=True, nullable=False, index=True)
+    title = db.Column(db.String(512), nullable=True)
+    description = db.Column(db.Text, nullable=True)
+    channel_id = db.Column(db.String(64), nullable=True, index=True)
+    channel_title = db.Column(db.String(256), nullable=True)
+    published_at = db.Column(db.String(64), nullable=True)
+    thumbnail = db.Column(db.String(512), nullable=True)
+    country = db.Column(db.String(8), nullable=True)
+    subscriber_count = db.Column(db.Integer, nullable=True)
+    view_count = db.Column(db.Integer, nullable=True)
+    avg_recent_views = db.Column(db.Integer, nullable=True)
+    transcript = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            'video_id': self.video_id,
+            'title': self.title,
+            'description': self.description,
+            'channel_id': self.channel_id,
+            'channel_title': self.channel_title,
+            'published_at': self.published_at,
+            'thumbnail': self.thumbnail,
+            'country': self.country,
+            'subscriber_count': self.subscriber_count,
+            'view_count': self.view_count,
+            'avg_recent_views': self.avg_recent_views,
+            'transcript': self.transcript,
+        }
