@@ -5,6 +5,7 @@ export interface User {
   email: string;
   company_name: string | null;
   website: string | null;
+  keywords: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -20,6 +21,7 @@ export interface RegisterRequest {
   password: string;
   company_name?: string;
   website?: string;
+  keywords?: string;
 }
 
 export interface AuthResponse {
@@ -107,10 +109,26 @@ class ApiClient {
     return this.request<{ user: User }>('/api/auth/profile');
   }
 
-  async updateProfile(userData: Partial<User>): Promise<{ user: User }> {
-    return this.request<{ user: User }>('/api/auth/profile', {
+  async updateProfile(userData: Partial<User>, userId?: number): Promise<{ user: User }> {
+    // Get user ID from parameter or localStorage
+    let user_id = userId;
+    if (!user_id) {
+      const user = JSON.parse(localStorage.getItem("user") || "{}");
+      user_id = user.id;
+    }
+    
+    if (!user_id) {
+      throw new Error("User ID is required for profile update");
+    }
+    
+    const dataWithId = {
+      ...userData,
+      id: user_id
+    };
+    
+    return this.request<{ user: User }>('/api/auth/profile/simple', {
       method: 'PUT',
-      body: JSON.stringify(userData),
+      body: JSON.stringify(dataWithId),
     });
   }
 

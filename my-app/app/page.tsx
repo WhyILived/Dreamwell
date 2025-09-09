@@ -37,15 +37,17 @@ export default function HomePage() {
             AI-powered platform.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/login">
+              <Button size="lg" variant="outline" className="text-lg px-8">
+                Sign In
+              </Button>
+            </Link>
             <Link href="/register">
               <Button size="lg" className="text-lg px-8">
-                Start Free Trial
+                Get Started
                 <ArrowRight className="ml-2 w-5 h-5" />
               </Button>
             </Link>
-            <Button size="lg" variant="outline" className="text-lg px-8 bg-transparent">
-              Watch Demo
-            </Button>
           </div>
         </div>
       </section>

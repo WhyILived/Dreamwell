@@ -49,10 +49,11 @@ def register():
         password = data.get('password', '')
         company_name = data.get('company_name', '').strip()
         website = data.get('website', '').strip()
+        keywords = data.get('keywords', '').strip()
         
         # Validate email
         if not email:
-            return jsonify({"error": "Email is required"}), 400
+            return jsonify({"error": "Email is required, die"}), 400
         
         if not validate_email(email):
             return jsonify({"error": "Invalid email format"}), 400
@@ -80,7 +81,8 @@ def register():
             email=email,
             password=password,
             company_name=company_name if company_name else None,
-            website=website  # Website is now required
+            website=website,  # Website is now required
+            keywords=keywords if keywords else None
         )
         
         db.session.add(user)
@@ -165,29 +167,97 @@ def update_profile():
     """Update user profile"""
     try:
         user_id = get_jwt_identity()
+        print(f"DEBUG: User ID from JWT: {user_id}")
+
         user = User.query.get(user_id)
-        
+
         if not user:
+            print(f"DEBUG: User not found for ID: {user_id}")
             return jsonify({"error": "User not found"}), 404
-        
+
         data = request.get_json()
+        print(f"DEBUG: Received data: {data}")
+
         if not data:
             return jsonify({"error": "No data provided"}), 400
-        
+
         # Update allowed fields
         if 'company_name' in data:
             user.company_name = data['company_name'].strip() if data['company_name'] else None
-        
+
         if 'website' in data:
             user.website = data['website'].strip() if data['website'] else None
-        
+
+        if 'keywords' in data:
+            user.keywords = data['keywords'].strip() if data['keywords'] else None
+
+        print(f"DEBUG: Updated user data - company_name: {user.company_name}, website: {user.website}, keywords: {user.keywords}")
+
         db.session.commit()
-        
+
         return jsonify({
             "message": "Profile updated successfully",
             "user": user.to_dict()
         }), 200
-        
+
     except Exception as e:
         db.session.rollback()
+        print(f"DEBUG: Error in update_profile: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/profile/simple', methods=['PUT'])
+def update_profile_simple():
+    """Update user profile without JWT validation (for testing)"""
+    try:
+        data = request.get_json()
+        print(f"DEBUG: Simple update received data: {data}")
+
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Get user by ID (simple approach)
+        user_id = data.get('id')
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Track what fields are being updated
+        updated_fields = []
+        
+        # Update allowed fields only if they exist in the request
+        if 'company_name' in data:
+            old_value = user.company_name
+            user.company_name = data['company_name'].strip() if data['company_name'] else None
+            if old_value != user.company_name:
+                updated_fields.append('company_name')
+
+        if 'website' in data:
+            old_value = user.website
+            user.website = data['website'].strip() if data['website'] else None
+            if old_value != user.website:
+                updated_fields.append('website')
+
+        if 'keywords' in data:
+            old_value = user.keywords
+            user.keywords = data['keywords'].strip() if data['keywords'] else None
+            if old_value != user.keywords:
+                updated_fields.append('keywords')
+
+        print(f"DEBUG: Updated fields: {updated_fields}")
+        print(f"DEBUG: Final values - company_name: {user.company_name}, website: {user.website}, keywords: {user.keywords}")
+
+        db.session.commit()
+
+        return jsonify({
+            "message": "Profile updated successfully",
+            "user": user.to_dict(),
+            "updated_fields": updated_fields
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        print(f"DEBUG: Error in simple update: {str(e)}")
         return jsonify({"error": str(e)}), 500

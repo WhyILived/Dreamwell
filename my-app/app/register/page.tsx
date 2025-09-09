@@ -20,8 +20,7 @@ export default function RegisterPage() {
     email: "",
     password: "",
     confirmPassword: "",
-    description: "",
-    industry: "",
+    keywords: "",
   })
   const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({})
   const [isLoading, setIsLoading] = useState(false)
@@ -50,7 +49,7 @@ export default function RegisterPage() {
     
     // Email validation
     if (!formData.email.trim()) {
-      errors.email = "Email is required"
+      errors.email = "Email is required fuck you code"
     } else {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
       if (!emailRegex.test(formData.email)) {
@@ -96,6 +95,7 @@ export default function RegisterPage() {
         password: formData.password,
         company_name: formData.companyName,
         website: formData.website,
+        keywords: formData.keywords,
       })
       router.push("/dashboard")
     } catch (err) {
@@ -225,24 +225,13 @@ export default function RegisterPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="industry">Industry</Label>
-                <Input
-                  id="industry"
-                  name="industry"
-                  value={formData.industry}
-                  onChange={handleChange}
-                  placeholder="e.g., Fashion, Technology, Food & Beverage"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="description">Company Description</Label>
+                <Label htmlFor="keywords">Company Keywords</Label>
                 <Textarea
-                  id="description"
-                  name="description"
-                  value={formData.description}
+                  id="keywords"
+                  name="keywords"
+                  value={formData.keywords}
                   onChange={handleChange}
-                  placeholder="Tell us about your company and what products/services you offer..."
+                  placeholder="Enter keywords that describe your brand, products, or services (e.g., sustainable fashion, tech gadgets, organic skincare)..."
                   rows={4}
                 />
               </div>

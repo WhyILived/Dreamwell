@@ -64,7 +64,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const updateProfile = async (userData: Partial<User>) => {
     try {
-      const response = await apiClient.updateProfile(userData);
+      if (!user) {
+        throw new Error("User not found");
+      }
+      const response = await apiClient.updateProfile(userData, user.id);
       setUser(response.user);
     } catch (error) {
       throw error;
