@@ -355,36 +355,60 @@ export default function BrandProfilePage() {
                   <div className="space-y-3 max-h-96 overflow-y-auto">
                     {influencerResults.map((influencer) => (
                       <div key={influencer.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-sm">{influencer.title}</h3>
-                            <div className="flex items-center space-x-4 mt-2 text-xs text-muted-foreground">
-                              <span>👥 {influencer.subs}</span>
-                              <span>👁️ {influencer.views}</span>
-                              <span>⭐ {influencer.score}</span>
-                            </div>
-                            {influencer.description && (
-                              <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                                {influencer.description}
-                              </p>
-                            )}
-                          </div>
-                          <div className="text-right">
-                            <div className="text-lg font-bold text-green-600">
-                              {influencer.pricing}
-                            </div>
-                            <div className="text-xs text-muted-foreground">Sponsorship</div>
-                          </div>
-                        </div>
-                        {influencer.url && (
+                        {influencer.url ? (
                           <a 
                             href={influencer.url} 
                             target="_blank" 
                             rel="noopener noreferrer"
-                            className="text-xs text-blue-600 hover:underline mt-2 inline-block"
+                            className="block cursor-pointer"
                           >
-                            View Channel →
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <h3 className="font-semibold text-sm hover:text-primary transition-colors">{influencer.title}</h3>
+                                <div className="flex items-center space-x-4 mt-2 text-xs text-muted-foreground">
+                                  <span>👥 {influencer.subs}</span>
+                                  <span>👁️ {influencer.views}</span>
+                                  <span>⭐ {influencer.score}</span>
+                                </div>
+                                {influencer.description && (
+                                  <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
+                                    {influencer.description}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="text-right">
+                                <div className="text-lg font-bold text-green-600">
+                                  {influencer.pricing}
+                                </div>
+                                <div className="text-xs text-muted-foreground">Sponsorship</div>
+                              </div>
+                            </div>
+                            <div className="text-xs text-blue-600 hover:underline mt-2 inline-block">
+                              View Channel →
+                            </div>
                           </a>
+                        ) : (
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <h3 className="font-semibold text-sm">{influencer.title}</h3>
+                              <div className="flex items-center space-x-4 mt-2 text-xs text-muted-foreground">
+                                <span>👥 {influencer.subs}</span>
+                                <span>👁️ {influencer.views}</span>
+                                <span>⭐ {influencer.score}</span>
+                              </div>
+                              {influencer.description && (
+                                <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
+                                  {influencer.description}
+                                </p>
+                              )}
+                            </div>
+                            <div className="text-right">
+                              <div className="text-lg font-bold text-green-600">
+                                {influencer.pricing}
+                              </div>
+                              <div className="text-xs text-muted-foreground">Sponsorship</div>
+                            </div>
+                          </div>
                         )}
                       </div>
                     ))}
