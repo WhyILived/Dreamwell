@@ -132,3 +132,38 @@ class VideoCache(db.Model):
             'avg_recent_views': self.avg_recent_views,
             'transcript': self.transcript,
         }
+
+class ChannelCache(db.Model):
+    """Per-channel cache for derived signals and estimated CPM/RPM."""
+    __tablename__ = 'channel_cache'
+
+    id = db.Column(db.Integer, primary_key=True)
+    channel_id = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    title = db.Column(db.String(256), nullable=True)
+    country = db.Column(db.String(8), nullable=True)
+    language = db.Column(db.String(8), nullable=True)
+    niche = db.Column(db.String(64), nullable=True)
+    subscribers = db.Column(db.Integer, nullable=True)
+    avg_recent_views = db.Column(db.Integer, nullable=True)
+    engagement_rate = db.Column(db.Float, nullable=True)
+    cpm_min_usd = db.Column(db.Float, nullable=True)
+    cpm_max_usd = db.Column(db.Float, nullable=True)
+    rpm_min_usd = db.Column(db.Float, nullable=True)
+    rpm_max_usd = db.Column(db.Float, nullable=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            'channel_id': self.channel_id,
+            'title': self.title,
+            'country': self.country,
+            'language': self.language,
+            'niche': self.niche,
+            'subscribers': self.subscribers,
+            'avg_recent_views': self.avg_recent_views,
+            'engagement_rate': self.engagement_rate,
+            'cpm_min_usd': self.cpm_min_usd,
+            'cpm_max_usd': self.cpm_max_usd,
+            'rpm_min_usd': self.rpm_min_usd,
+            'rpm_max_usd': self.rpm_max_usd,
+        }

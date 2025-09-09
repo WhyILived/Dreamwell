@@ -1,0 +1,184 @@
+#!/usr/bin/env python3
+"""
+CPM/RPM Estimation Utilities
+
+Heuristic (no OAuth) CPM/RPM estimates based on:
+- Niche/country baselines
+- Engagement-adjusted scaling
+- Region/language multipliers
+- Seasonality multipliers
+
+Public YouTube Data API does not expose actual CPM/RPM; these are estimates.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Dict, Tuple, Optional
+from math import sqrt
+
+
+# -------------------------- Baselines --------------------------
+
+# Baseline CPM (USD) ranges by niche for US market.
+# Numbers are indicative only and should be refined over time.
+NICHE_BASELINES_USD: Dict[str, Tuple[float, float]] = {
+    "tech": (8.0, 20.0),
+    "finance": (12.0, 35.0),
+    "business": (10.0, 25.0),
+    "education": (6.0, 18.0),
+    "health": (7.0, 20.0),
+    "fitness": (6.0, 15.0),
+    "beauty": (5.0, 14.0),
+    "gaming": (3.0, 9.0),
+    "travel": (4.0, 12.0),
+    "lifestyle": (4.0, 12.0),
+    "sports": (4.0, 12.0),
+    "default": (5.0, 12.0),
+}
+
+# Country multipliers relative to US — coarse defaults.
+COUNTRY_MULTIPLIER: Dict[str, float] = {
+    "US": 1.00, "CA": 0.95, "GB": 0.95, "UK": 0.95, "AU": 0.90,
+    "DE": 0.90, "FR": 0.85, "NL": 0.90, "SE": 0.90, "NO": 0.95,
+    "DK": 0.90, "FI": 0.85, "CH": 1.00, "JP": 0.90, "SG": 0.95,
+    "IN": 0.35, "BR": 0.45, "MX": 0.50, "PH": 0.35, "ID": 0.35,
+    "ES": 0.75, "IT": 0.75, "PL": 0.65, "TR": 0.45, "AE": 0.95,
+}
+
+# Language multipliers (very rough). Applied if country missing.
+LANG_MULTIPLIER: Dict[str, float] = {"en": 1.0, "de": 0.9, "fr": 0.85, "es": 0.8, "pt": 0.75, "hi": 0.4}
+
+# Seasonality multiplier by month (1..12). Q4 uplift.
+SEASONALITY: Dict[int, float] = {1: 0.85, 2: 0.9, 3: 0.95, 4: 1.0, 5: 1.0, 6: 0.95, 7: 0.95, 8: 1.0, 9: 1.05, 10: 1.15, 11: 1.25, 12: 1.3}
+
+
+# -------------------------- Data Model --------------------------
+
+@dataclass
+class ChannelSignals:
+    niche: str
+    country: Optional[str] = None
+    language: Optional[str] = None  # ISO-639-1 if known
+    avg_recent_views: Optional[float] = None  # per video
+    engagement_rate: Optional[float] = None  # (likes+comments)/views over recent vids (0..1)
+    subscribers: Optional[int] = None
+    videos_sampled: Optional[int] = None  # number of recent vids used to compute metrics
+    month: Optional[int] = None  # 1..12 for seasonality
+
+
+# -------------------------- Helpers --------------------------
+
+def pick_baseline_usd(niche: str) -> Tuple[float, float]:
+    key = (niche or "").strip().lower()
+    for k in NICHE_BASELINES_USD:
+        if k != "default" and k in key:
+            return NICHE_BASELINES_USD[k]
+    return NICHE_BASELINES_USD["default"]
+
+
+def region_multiplier(country: Optional[str], language: Optional[str]) -> float:
+    if country:
+        c = country.upper()
+        if c in COUNTRY_MULTIPLIER:
+            return COUNTRY_MULTIPLIER[c]
+    if language:
+        l = language.lower()
+        if l in LANG_MULTIPLIER:
+            return LANG_MULTIPLIER[l]
+    return 0.8  # conservative default if region unknown
+
+
+def seasonality_multiplier(month: Optional[int]) -> float:
+    if month and 1 <= month <= 12:
+        return SEASONALITY.get(month, 1.0)
+    return 1.0
+
+
+def engagement_scaler(engagement_rate: Optional[float]) -> float:
+    """Map ER to a multiplier. 3% ~ 1.0; every +1% adds ~0.12x; floor at 0.7, cap at 1.5."""
+    if engagement_rate is None:
+        return 1.0
+    er = max(0.0, min(0.2, engagement_rate))  # clamp at 20%
+    # Base around 3%
+    base = 0.03
+    delta = er - base
+    mult = 1.0 + (delta / 0.01) * 0.12
+    return max(0.7, min(1.5, mult))
+
+
+def scale_by_recency(avg_recent_views: Optional[float], subscribers: Optional[int]) -> float:
+    """If recent views punch above subs, scale up; below, scale down slightly.
+    Use sqrt to reduce variance. Bound within [0.7, 1.3].
+    """
+    if not avg_recent_views or not subscribers or subscribers <= 0:
+        return 1.0
+    ratio = (avg_recent_views / max(1.0, subscribers))  # views per sub per recent vid
+    # views per sub near 0.05..0.2 typical; map through sqrt curve
+    mult = sqrt(max(0.05, min(0.4, ratio)) / 0.1)
+    return max(0.7, min(1.3, mult))
+
+
+# -------------------------- Public API --------------------------
+
+def estimate_cpm_range(signals: ChannelSignals) -> Tuple[float, float]:
+    """Return estimated CPM min/max in USD for the channel's audience."""
+    base_min, base_max = pick_baseline_usd(signals.niche)
+    r_mult = region_multiplier(signals.country, signals.language)
+    s_mult = seasonality_multiplier(signals.month)
+    e_mult = engagement_scaler(signals.engagement_rate)
+    p_mult = scale_by_recency(signals.avg_recent_views, signals.subscribers)
+
+    min_cpm = base_min * r_mult * s_mult * e_mult * p_mult
+    max_cpm = base_max * r_mult * s_mult * e_mult * p_mult
+    # tidy rounding
+    return round(min_cpm, 2), round(max_cpm, 2)
+
+
+def estimate_rpm_range(signals: ChannelSignals) -> Tuple[float, float]:
+    """RPM is typically lower than CPM due to fill rates/other revenue sources.
+    Heuristic: RPM ~ 0.5..0.7 of CPM range.
+    """
+    cmin, cmax = estimate_cpm_range(signals)
+    return round(cmin * 0.55, 2), round(cmax * 0.65, 2)
+
+
+def estimate_for_channel(
+    niche: str,
+    country: Optional[str],
+    language: Optional[str],
+    avg_recent_views: Optional[float],
+    engagement_rate: Optional[float],
+    subscribers: Optional[int],
+    month: Optional[int] = None,
+) -> Dict[str, Tuple[float, float]]:
+    """Convenience wrapper: returns both CPM and RPM ranges."""
+    sig = ChannelSignals(
+        niche=niche,
+        country=country,
+        language=language,
+        avg_recent_views=avg_recent_views,
+        engagement_rate=engagement_rate,
+        subscribers=subscribers,
+        month=month,
+    )
+    return {
+        "cpm_usd": estimate_cpm_range(sig),
+        "rpm_usd": estimate_rpm_range(sig),
+    }
+
+
+if __name__ == "__main__":
+    # quick manual test
+    test = estimate_for_channel(
+        niche="fitness",
+        country="US",
+        language="en",
+        avg_recent_views=25000,
+        engagement_rate=0.045,
+        subscribers=120000,
+        month=11,
+    )
+    print(test)
+
+

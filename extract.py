@@ -412,10 +412,19 @@ def search_with_filters(keywords="wireless earbuds review", max_results: int = 5
         
         print(f"✅ Found {len(videos)} recent popular videos")
         
-        # Extract unique channels from videos
+        # Extract unique channels from videos and keep VideoCache rows
+        from models import VideoCache
+        vc_map = {}
         channels = {}
         for video in videos:
             channel_id = video['channel_id']
+            # fetch the VideoCache row for enrichment checks
+            try:
+                vc_row = VideoCache.query.filter_by(video_id=video['video_id']).first()
+                if vc_row:
+                    vc_map[video['video_id']] = vc_row
+            except Exception:
+                pass
             if channel_id not in channels:
                 channels[channel_id] = {
                     'channel_id': channel_id,
@@ -429,34 +438,91 @@ def search_with_filters(keywords="wireless earbuds review", max_results: int = 5
             channels[channel_id]['video_count'] += 1
             channels[channel_id]['recent_videos'].append(video)
         
-        # Enrich with channel stats and recent video view stats to compute avg recent views
+        # Fast-path: determine what's missing in cache; only fetch what's missing
+        from datetime import datetime, timedelta
         gems_client = GemsAPI()
-        channel_ids = list(channels.keys())
-        ch_stats = gems_client.get_channels_stats(channel_ids)
-
-        # gather video ids for stats
-        all_vids = [v['video_id'] for ch in channels.values() for v in ch['recent_videos']]
-        v_stats = gems_client.get_videos_stats(all_vids)
-
-        # Attach full transcripts per video where available (no OAuth)
+        missing_channels = set()
+        missing_video_stats = []
+        missing_transcripts = []
         for ch in channels.values():
             for v in ch['recent_videos']:
+                vc_row = vc_map.get(v['video_id'])
+                if not vc_row:
+                    # entirely missing row; fetch stats and transcript
+                    missing_video_stats.append(v['video_id'])
+                    missing_transcripts.append(v['video_id'])
+                    missing_channels.add(ch['channel_id'])
+                    continue
+                if vc_row.subscriber_count is None or vc_row.country is None:
+                    missing_channels.add(ch['channel_id'])
+                if vc_row.view_count is None:
+                    missing_video_stats.append(v['video_id'])
+                if vc_row.transcript is None:
+                    missing_transcripts.append(v['video_id'])
+
+        # Batch fetch only missing pieces and update VideoCache
+        if missing_channels:
+            try:
+                ch_stats = gems_client.get_channels_stats(list(missing_channels))
+                for cid, cstat in ch_stats.items():
+                    # update all rows for this channel
+                    try:
+                        rows = VideoCache.query.filter_by(channel_id=cid).all()
+                        for row in rows:
+                            row.country = cstat.get('country')
+                            row.subscriber_count = cstat.get('subscriber_count')
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+        if missing_video_stats:
+            try:
+                v_stats = gems_client.get_videos_stats(missing_video_stats)
+                for vid, vst in v_stats.items():
+                    row = vc_map.get(vid) or VideoCache.query.filter_by(video_id=vid).first()
+                    if row:
+                        row.view_count = vst.get('views')
+                        vc_map[vid] = row
+            except Exception:
+                pass
+        if missing_transcripts:
+            for vid in missing_transcripts:
                 try:
-                    v['transcript'] = gems_client.get_video_transcript(v['video_id']) or None
+                    text = gems_client.get_video_transcript(vid)
+                    if text:
+                        row = vc_map.get(vid) or VideoCache.query.filter_by(video_id=vid).first()
+                        if row:
+                            row.transcript = text
+                            vc_map[vid] = row
                 except Exception:
-                    v['transcript'] = None
+                    continue
+        try:
+            from models import db
+            db.session.commit()
+        except Exception:
+            pass
 
         # Convert to list and add basic scoring
         results = []
         for channel_id, channel_data in channels.items():
             # Average recent views from fetched per-video stats (closest proxy)
-            views_list = [v_stats.get(v['video_id'], {}).get('views', 0) for v in channel_data['recent_videos']]
+            # use cached per-video view_count from VideoCache
+            views_list = [
+                (vc_map.get(v['video_id']).view_count if vc_map.get(v['video_id']) else 0)
+                for v in channel_data['recent_videos']
+            ]
             avg_recent_views = sum(views_list) / max(1, len(views_list))
 
             # Channel-level stats
-            cstats = ch_stats.get(channel_id, {})
-            subscriber_count = cstats.get('subscriber_count')
-            country = cstats.get('country')
+            # derive from any row in this channel
+            sample_row = None
+            for v in channel_data['recent_videos']:
+                r = vc_map.get(v['video_id'])
+                if r:
+                    sample_row = r
+                    break
+            subscriber_count = sample_row.subscriber_count if sample_row else None
+            country = sample_row.country if sample_row else None
 
             # Simple scoring using recent video count (kept lightweight)
             score = channel_data['video_count'] * 10
@@ -472,7 +538,7 @@ def search_with_filters(keywords="wireless earbuds review", max_results: int = 5
                     {
                         'video_id': v.get('video_id'),
                         'title': v.get('title'),
-                        'transcript': v.get('transcript')
+                        'transcript': (vc_map.get(v.get('video_id')).transcript if vc_map.get(v.get('video_id')) else None)
                     } for v in channel_data['recent_videos']
                 ],
                 'score': score,

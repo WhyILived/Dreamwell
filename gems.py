@@ -462,9 +462,11 @@ class GemsAPI:
         # Perform actual search
         results = self.search_videos_with_filters(keywords, filters)
 
-        # Persist per-video details into VideoCache (and enrich with stats/transcripts)
+        # Persist per-video details into VideoCache (and enrich with stats/transcripts);
+        # also compute/channel CPM estimates into ChannelCache.
         try:
-            from models import db, VideoCache
+            from models import db, VideoCache, ChannelCache
+            from cpm import estimate_for_channel
             # Collect IDs for batched stats calls
             channel_ids = list({r.get('channel_id') for r in results if r.get('channel_id')})
             video_ids = [r.get('video_id') for r in results if r.get('video_id')]
@@ -511,6 +513,59 @@ class GemsAPI:
                     vc.avg_recent_views = int(sum(views) / len(views)) if views else None
                 except Exception:
                     pass
+
+            # Compute/update per-channel CPM estimates
+            for cid in channel_ids:
+                # derive signals from latest cached videos
+                rows = VideoCache.query.filter_by(channel_id=cid).order_by(VideoCache.updated_at.desc()).limit(10).all()
+                if not rows:
+                    continue
+                country = rows[0].country
+                language = 'en'  # best-effort default; could be inferred later
+                subscribers = rows[0].subscriber_count
+                # avg_recent_views: mean over recent rows
+                vs = [r.view_count for r in rows if isinstance(r.view_count, int)]
+                avg_recent_views = int(sum(vs) / len(vs)) if vs else None
+                # engagement_rate: compute from likes+comments over views for recent videos
+                try:
+                    vids2 = [r.video_id for r in rows]
+                    vstats2 = self.get_videos_stats(vids2)
+                    total_views = 0
+                    total_interactions = 0
+                    for vid, st in vstats2.items():
+                        vcount = st.get('views') or 0
+                        lcount = st.get('likes') or 0
+                        ccount = st.get('comments') or 0
+                        total_views += vcount
+                        total_interactions += (lcount + ccount)
+                    engagement_rate = (total_interactions / total_views) if total_views else None
+                except Exception:
+                    engagement_rate = None
+                # niche: infer from channel title rudimentarily or set default
+                title_lc = (rows[0].channel_title or '').lower()
+                niche = 'fitness' if 'fitness' in title_lc else 'tech' if 'tech' in title_lc else 'default'
+
+                est = estimate_for_channel(
+                    niche=niche,
+                    country=country,
+                    language=language,
+                    avg_recent_views=avg_recent_views,
+                    engagement_rate=engagement_rate,
+                    subscribers=subscribers,
+                )
+                ch = ChannelCache.query.filter_by(channel_id=cid).first()
+                if not ch:
+                    ch = ChannelCache(channel_id=cid)
+                    db.session.add(ch)
+                ch.title = rows[0].channel_title
+                ch.country = country
+                ch.language = language
+                ch.niche = niche
+                ch.subscribers = subscribers
+                ch.avg_recent_views = avg_recent_views
+                ch.engagement_rate = engagement_rate
+                ch.cpm_min_usd, ch.cpm_max_usd = est["cpm_usd"]
+                ch.rpm_min_usd, ch.rpm_max_usd = est["rpm_usd"]
             db.session.commit()
         except Exception as e:
             print(f"Error upserting VideoCache: {e}")
