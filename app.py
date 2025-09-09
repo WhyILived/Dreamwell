@@ -22,6 +22,7 @@ def create_app(config_name=None):
     migrate = Migrate(app, db)
     CORS(app, origins=['http://localhost:3000'])  # Allow Next.js dev server
     
+    
     # Register blueprints
     app.register_blueprint(auth_bp)
     

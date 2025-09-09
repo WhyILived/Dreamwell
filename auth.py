@@ -3,6 +3,7 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 from models import db, User
 from datetime import timedelta
 import re
+from models import Product
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -191,7 +192,11 @@ def update_profile():
         if 'keywords' in data:
             user.keywords = data['keywords'].strip() if data['keywords'] else None
 
-        print(f"DEBUG: Updated user data - company_name: {user.company_name}, website: {user.website}, keywords: {user.keywords}")
+        if 'country_code' in data:
+            cc = (data.get('country_code') or '').strip().upper()[:2]
+            user.country_code = cc or None
+
+        print(f"DEBUG: Updated user data - company_name: {user.company_name}, website: {user.website}, keywords: {user.keywords}, country_code: {user.country_code}")
 
         db.session.commit()
 
@@ -246,8 +251,15 @@ def update_profile_simple():
             if old_value != user.keywords:
                 updated_fields.append('keywords')
 
+        if 'country_code' in data:
+            old_value = getattr(user, 'country_code', None)
+            cc = (data.get('country_code') or '').strip().upper()[:2]
+            user.country_code = cc or None
+            if old_value != user.country_code:
+                updated_fields.append('country_code')
+
         print(f"DEBUG: Updated fields: {updated_fields}")
-        print(f"DEBUG: Final values - company_name: {user.company_name}, website: {user.website}, keywords: {user.keywords}")
+        print(f"DEBUG: Final values - company_name: {user.company_name}, website: {user.website}, keywords: {user.keywords}, country_code: {getattr(user, 'country_code', None)}")
 
         db.session.commit()
 
@@ -327,6 +339,167 @@ def generate_keywords():
         print(f"DEBUG: Error generating keywords: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@auth_bp.route('/generate-values', methods=['POST'])
+def generate_values():
+    """Generate company values from a website using Gemini and save to user profile (stored in keywords field)."""
+    try:
+        data = request.get_json()
+        if not data or 'website' not in data:
+            return jsonify({"error": "Website URL is required"}), 400
+
+        website = data['website'].strip()
+        user_id = data.get('user_id')
+
+        if not website:
+            return jsonify({"error": "Website URL cannot be empty"}), 400
+        if not user_id:
+            return jsonify({"error": "User ID is required to save values"}), 400
+
+        # Fetch page HTML
+        import requests
+        html = ""
+        try:
+            r = requests.get(website, timeout=10)
+            r.raise_for_status()
+            html = (r.text or "")[:150000]
+        except Exception:
+            pass
+
+        # Use Gemini to extract values
+        values = []
+        try:
+            import google.generativeai as genai
+            import os
+            genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            prompt = f"""
+            You are extracting a company's core values from its website to help score influencer fit.
+            URL: {website}
+            Webpage HTML (truncated):
+            ```
+            {html}
+            ```
+
+            Extract 5-10 concise company values/principles (e.g., sustainability, innovation, inclusivity, premium quality).
+            Respond as a JSON array of strings only, no commentary.
+            """
+            resp = model.generate_content(prompt)
+            txt = (resp.text or "").strip()
+            import json as _json
+            start = txt.find("[")
+            end = txt.rfind("]")
+            if start != -1 and end != -1 and end > start:
+                arr = _json.loads(txt[start:end+1])
+                values = [str(x).strip() for x in arr if str(x).strip()]
+        except Exception:
+            values = []
+
+        # Save to user profile (reuse keywords column)
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        existing = user.keywords.split(',') if user.keywords else []
+        existing = [k.strip() for k in existing if k.strip()]
+        # Replace with values for now (or merge if desired)
+        user.keywords = ', '.join(values) if values else user.keywords
+        db.session.commit()
+
+        return jsonify({
+            "message": "Company values generated successfully",
+            "values": values,
+            "count": len(values)
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/products/ingest', methods=['POST'])
+def ingest_product():
+    """Create a product by scraping a URL and extracting details via Gemini."""
+    try:
+        data = request.get_json() or {}
+        user_id = data.get('user_id')
+        url = (data.get('url') or '').strip()
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+        if not url:
+            return jsonify({"error": "Product URL is required"}), 400
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Extract product details
+        from gems import GemsAPI
+        gems = GemsAPI()
+        extracted = gems.extract_product_from_url(url)
+
+        # Persist
+        product = Product(
+            user_id=user.id,
+            url=url,
+            name=extracted.get('name'),
+            category=extracted.get('category'),
+            keywords=", ".join(extracted.get('keywords') or []),
+        )
+        db.session.add(product)
+        db.session.commit()
+
+        return jsonify({
+            "message": "Product ingested successfully",
+            "product": product.to_dict()
+        }), 201
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/products', methods=['GET'])
+def list_products():
+    """List products for a user."""
+    try:
+        user_id = request.args.get('user_id', type=int)
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+        products = Product.query.filter_by(user_id=user_id).order_by(Product.created_at.desc()).all()
+        return jsonify({
+            "products": [p.to_dict() for p in products],
+            "count": len(products)
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/products/<int:product_id>', methods=['PUT'])
+def update_product(product_id: int):
+    """Update product fields (manual edits)."""
+    try:
+        data = request.get_json() or {}
+        product = Product.query.get(product_id)
+        if not product:
+            return jsonify({"error": "Product not found"}), 404
+
+        # Update editable fields
+        if 'name' in data:
+            product.name = (data.get('name') or '').strip() or None
+        if 'category' in data:
+            product.category = (data.get('category') or '').strip() or None
+        if 'profit' in data:
+            try:
+                val = data.get('profit')
+                product.profit = float(val) if val is not None else None
+            except Exception:
+                product.profit = None
+        if 'keywords' in data:
+            product.keywords = (data.get('keywords') or '').strip() or None
+
+        db.session.commit()
+        return jsonify({"message": "Product updated", "product": product.to_dict()}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+
 @auth_bp.route('/search-influencers', methods=['POST'])
 def search_influencers():
     """Search for YouTube influencers based on keywords and get pricing"""
@@ -390,6 +563,7 @@ def search_influencers():
                         "title": row.get('title', 'Unknown'),
                         "subs": row.get('subs', 'Unknown'),
                         "views": row.get('views', 'Unknown'),
+                        "avg_recent_views": row.get('avg_recent_views', None),
                         "score": row.get('score', 'Unknown'),
                         "pricing": pricing,
                         "url": row.get('url', ''),
@@ -403,6 +577,7 @@ def search_influencers():
                         "title": row.get('title', 'Unknown'),
                         "subs": row.get('subs', 'Unknown'),
                         "views": row.get('views', 'Unknown'),
+                        "avg_recent_views": row.get('avg_recent_views', None),
                         "score": row.get('score', 'Unknown'),
                         "pricing": "Price not available",
                         "url": row.get('url', ''),

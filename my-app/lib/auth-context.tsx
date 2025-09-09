@@ -22,27 +22,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isAuthenticated = !!user;
 
   useEffect(() => {
-    // Check if user is already logged in
+    // Hydrate from localStorage immediately for fast tab reloads/new tabs
+    try {
+      const stored = typeof window !== 'undefined' ? window.localStorage.getItem('user') : null;
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && parsed.id) setUser(parsed);
+      }
+    } catch {}
+
+    // Check if token is present and refresh profile
     const checkAuth = async () => {
       if (apiClient.isAuthenticated()) {
         try {
           const response = await apiClient.getProfile();
           setUser(response.user);
+          try { if (typeof window !== 'undefined') window.localStorage.setItem('user', JSON.stringify(response.user)); } catch {}
         } catch (error) {
           console.error('Failed to get user profile:', error);
-          apiClient.logout();
+          // Do NOT clear token or broadcast logout across tabs on a transient error.
+          // Keep existing localStorage user; only clear local state.
+          setUser(prev => prev || null);
         }
       }
       setIsLoading(false);
     };
 
     checkAuth();
+
+    // Keep tabs in sync (token/user changes across tabs)
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === 'user') {
+        if (e.newValue) {
+          try { setUser(JSON.parse(e.newValue)); } catch {}
+        } else {
+          setUser(null);
+        }
+      }
+    };
+    if (typeof window !== 'undefined') window.addEventListener('storage', onStorage);
+    return () => { if (typeof window !== 'undefined') window.removeEventListener('storage', onStorage); };
   }, []);
 
   const login = async (credentials: LoginRequest) => {
     try {
       const response = await apiClient.login(credentials);
+      // Clear per-user local caches on new login
+      try {
+        if (typeof window !== 'undefined' && response.user?.id) {
+          window.localStorage.removeItem(`influencerResults_v1:${response.user.id}`);
+          window.localStorage.removeItem(`productSelections_v1:${response.user.id}`);
+        }
+      } catch {}
       setUser(response.user);
+      try { if (typeof window !== 'undefined') window.localStorage.setItem('user', JSON.stringify(response.user)); } catch {}
     } catch (error) {
       throw error;
     }
@@ -51,7 +84,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (userData: RegisterRequest) => {
     try {
       const response = await apiClient.register(userData);
+      // Clear per-user local caches on fresh register
+      try {
+        if (typeof window !== 'undefined' && response.user?.id) {
+          window.localStorage.removeItem(`influencerResults_v1:${response.user.id}`);
+          window.localStorage.removeItem(`productSelections_v1:${response.user.id}`);
+        }
+      } catch {}
       setUser(response.user);
+      try { if (typeof window !== 'undefined') window.localStorage.setItem('user', JSON.stringify(response.user)); } catch {}
     } catch (error) {
       throw error;
     }
@@ -59,7 +100,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     apiClient.logout();
+    try {
+      if (typeof window !== 'undefined' && user?.id) {
+        window.localStorage.removeItem(`influencerResults_v1:${user.id}`);
+        window.localStorage.removeItem(`productSelections_v1:${user.id}`);
+      }
+    } catch {}
     setUser(null);
+    try { if (typeof window !== 'undefined') window.localStorage.removeItem('user'); } catch {}
   };
 
   const updateProfile = async (userData: Partial<User>) => {
@@ -69,6 +117,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       const response = await apiClient.updateProfile(userData, user.id);
       setUser(response.user);
+      try { if (typeof window !== 'undefined') window.localStorage.setItem('user', JSON.stringify(response.user)); } catch {}
     } catch (error) {
       throw error;
     }

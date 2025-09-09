@@ -6,6 +6,7 @@ export interface User {
   company_name: string | null;
   website: string | null;
   keywords: string | null;
+  country_code?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -62,13 +63,13 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseURL}${endpoint}`;
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string> | undefined),
     };
 
     if (this.token) {
-      headers.Authorization = `Bearer ${this.token}`;
+      headers['Authorization'] = `Bearer ${this.token}`;
     }
 
     const response = await fetch(url, {
@@ -109,7 +110,7 @@ class ApiClient {
     return this.request<{ user: User }>('/api/auth/profile');
   }
 
-  async updateProfile(userData: Partial<User>, userId?: number): Promise<{ user: User }> {
+  async updateProfile(userData: Partial<User> & { country_code?: string | null }, userId?: number): Promise<{ user: User }> {
     // Get user ID from parameter or localStorage
     let user_id = userId;
     if (!user_id) {

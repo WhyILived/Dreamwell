@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
-import { Globe, LogOut, Plus, Sparkles, Search, X } from "lucide-react"
+import { Globe, LogOut, Plus, Sparkles, X } from "lucide-react"
 import { useAuth } from "@/lib/auth-context"
 
 export default function BrandProfilePage() {
@@ -17,12 +17,11 @@ export default function BrandProfilePage() {
     website: "",
     keywords: [] as string[],
   })
+  const [countryCode, setCountryCode] = useState<string>("")
   const [selectedKeywords, setSelectedKeywords] = useState<string[]>([])
   const [newKeyword, setNewKeyword] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
-  const [isSearching, setIsSearching] = useState(false)
-  const [influencerResults, setInfluencerResults] = useState<any[]>([])
-  const [averages, setAverages] = useState({ avg_views: 0, avg_score: 0 })
+  // Influencer search moved to Influencers tab
   
   const { user, isLoading, logout, updateProfile } = useAuth()
   const router = useRouter()
@@ -43,6 +42,7 @@ export default function BrandProfilePage() {
         website: user.website || "",
         keywords: keywords,
       })
+      setCountryCode((user as any).country_code || "")
       setSelectedKeywords(keywords)
     }
   }, [user])
@@ -62,6 +62,7 @@ export default function BrandProfilePage() {
         company_name: brandData.companyName,
         website: brandData.website,
         keywords: selectedKeywords.join(', '),
+        country_code: countryCode || null,
       })
       alert("Profile updated successfully!")
     } catch (error) {
@@ -116,8 +117,8 @@ export default function BrandProfilePage() {
 
     setIsGenerating(true)
     try {
-      // Call the backend to generate keywords from website
-      const response = await fetch('http://localhost:5000/api/auth/generate-keywords', {
+      // Call the backend to generate company values from website
+      const response = await fetch('http://localhost:5000/api/auth/generate-values', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,8 +131,8 @@ export default function BrandProfilePage() {
 
       if (response.ok) {
         const data = await response.json()
-        const generatedKeywords = data.keywords || []
-        const allKeywords = data.all_keywords || []
+        const generatedKeywords = data.values || []
+        const allKeywords = generatedKeywords
         
         // Update the keywords from the database response
         setBrandData(prev => ({
@@ -142,56 +143,25 @@ export default function BrandProfilePage() {
         // Add new keywords to selected keywords as well
         setSelectedKeywords(prev => {
           const existingSelected = prev || []
-          const newKeywords = generatedKeywords.filter(keyword => 
+          const newKeywords = generatedKeywords.filter((keyword: string) =>
             !existingSelected.includes(keyword)
           )
           return [...existingSelected, ...newKeywords]
         })
         
-        alert(`Generated ${generatedKeywords.length} new keywords from your website!`)
+        alert(`Generated ${generatedKeywords.length} company values from your website!`)
       } else {
-        throw new Error('Failed to generate keywords')
+        throw new Error('Failed to generate company values')
       }
     } catch (error) {
-      console.error("Failed to generate keywords:", error)
-      alert("Failed to generate keywords. Please try again.")
+      console.error("Failed to generate values:", error)
+      alert("Failed to generate values. Please try again.")
     } finally {
       setIsGenerating(false)
     }
   }
 
-  const handleSearchInfluencers = async () => {
-    if (selectedKeywords.length === 0) {
-      alert("Please select at least one keyword to search for influencers")
-      return
-    }
-
-    setIsSearching(true)
-    try {
-      // Call the backend to search for influencers
-      const response = await fetch('http://localhost:5000/api/auth/search-influencers', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ keywords: selectedKeywords }),
-      })
-
-      if (response.ok) {
-        const data = await response.json()
-        setInfluencerResults(data.influencers || [])
-        setAverages(data.averages || { avg_views: 0, avg_score: 0 })
-        alert(`Found ${data.count || 0} influencers! Results displayed on the right.`)
-      } else {
-        throw new Error('Failed to search for influencers')
-      }
-    } catch (error) {
-      console.error("Failed to search for influencers:", error)
-      alert("Failed to search for influencers. Please try again.")
-    } finally {
-      setIsSearching(false)
-    }
-  }
+  // Search moved to Influencers tab
 
   const handleKeywordToggle = (keyword: string, checked: boolean) => {
     if (checked) {
@@ -224,7 +194,7 @@ export default function BrandProfilePage() {
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
+      <div className="grid lg:grid-cols-1 gap-6">
         {/* Brand Information Form */}
         <div className="space-y-6">
           <Card>
@@ -256,9 +226,32 @@ export default function BrandProfilePage() {
                 </div>
               </div>
 
+              {/* Company Region */}
+              <div className="space-y-2">
+                <Label htmlFor="country">Company Region</Label>
+                <select
+                  id="country"
+                  className="border rounded px-3 py-2 w-full bg-background"
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                >
+                  <option value="">Select a country</option>
+                  <option value="US">United States (US)</option>
+                  <option value="CA">Canada (CA)</option>
+                  <option value="GB">United Kingdom (GB)</option>
+                  <option value="AU">Australia (AU)</option>
+                  <option value="DE">Germany (DE)</option>
+                  <option value="FR">France (FR)</option>
+                  <option value="IN">India (IN)</option>
+                  <option value="JP">Japan (JP)</option>
+                  <option value="SG">Singapore (SG)</option>
+                  <option value="BR">Brazil (BR)</option>
+                </select>
+              </div>
+
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <Label htmlFor="keywords">Company Keywords</Label>
+                  <Label htmlFor="keywords">Company Values</Label>
                   <div className="flex space-x-2">
                     <Button
                       type="button"
@@ -268,15 +261,15 @@ export default function BrandProfilePage() {
                       disabled={isGenerating || !brandData.website}
                     >
                       <Sparkles className="w-4 h-4 mr-2" />
-                      {isGenerating ? "Generating..." : "Generate"}
+                      {isGenerating ? "Generating..." : "Generate Values"}
                     </Button>
                   </div>
                 </div>
 
-                {/* Add new keyword */}
+                {/* Add new value */}
                 <div className="flex space-x-2">
                   <Input
-                    placeholder="Add a keyword..."
+                    placeholder="Add a value..."
                     value={newKeyword}
                     onChange={(e) => setNewKeyword(e.target.value)}
                     onKeyPress={(e) => e.key === 'Enter' && handleAddKeyword()}
@@ -292,7 +285,7 @@ export default function BrandProfilePage() {
                   </Button>
                 </div>
 
-                {/* Keywords list with checkboxes */}
+                {/* Values list with checkboxes */}
                 {brandData.keywords.length > 0 ? (
                   <div className="space-y-2">
                     <Label className="text-sm text-muted-foreground">Select keywords for influencer search:</Label>
@@ -343,129 +336,16 @@ export default function BrandProfilePage() {
                   </div>
                 )}
 
-                {/* Search and Save buttons */}
-                <div className="flex space-x-2">
-                  <Button
-                    onClick={handleSearchInfluencers}
-                    disabled={isSearching || selectedKeywords.length === 0}
-                    className="flex-1"
-                  >
-                    <Search className="w-4 h-4 mr-2" />
-                    {isSearching ? "Searching..." : "Search Influencers"}
-                  </Button>
-                  <Button onClick={handleSave} variant="outline">
-                    Save Changes
-                  </Button>
+                {/* Save button */}
+                <div className="flex">
+                  <Button onClick={handleSave} variant="outline">Save Changes</Button>
                 </div>
               </div>
             </CardContent>
           </Card>
         </div>
 
-        {/* Influencer Results */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Influencer Search Results</CardTitle>
-              <CardDescription>
-                {influencerResults.length > 0 
-                  ? `Found ${influencerResults.length} influencers with pricing estimates`
-                  : "Search for influencers using your selected keywords"
-                }
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {influencerResults.length > 0 ? (
-                <div className="space-y-4">
-                  {/* Averages */}
-                  <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">
-                        {Math.round(averages.avg_views).toLocaleString()}
-                      </div>
-                      <div className="text-sm text-muted-foreground">Avg Views</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-primary">
-                        {averages.avg_score.toFixed(1)}
-                      </div>
-                      <div className="text-sm text-muted-foreground">Avg Score</div>
-                    </div>
-                  </div>
-
-                  {/* Influencer List */}
-                  <div className="space-y-3 max-h-96 overflow-y-auto">
-                    {influencerResults.map((influencer) => (
-                      <div key={influencer.id} className="border rounded-lg p-4 hover:bg-muted/50 transition-colors">
-                        {influencer.url ? (
-                          <a 
-                            href={influencer.url} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            className="block cursor-pointer"
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <h3 className="font-semibold text-sm hover:text-primary transition-colors">{influencer.title}</h3>
-                                <div className="flex items-center space-x-4 mt-2 text-xs text-muted-foreground">
-                                  <span>👥 {influencer.subs}</span>
-                                  <span>👁️ {influencer.views}</span>
-                                  <span>⭐ {influencer.score}</span>
-                                </div>
-                                {influencer.description && (
-                                  <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                                    {influencer.description}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="text-right">
-                                <div className="text-lg font-bold text-green-600">
-                                  {influencer.pricing}
-                                </div>
-                                <div className="text-xs text-muted-foreground">Sponsorship</div>
-                              </div>
-                            </div>
-                            <div className="text-xs text-blue-600 hover:underline mt-2 inline-block">
-                              View Channel →
-                            </div>
-                          </a>
-                        ) : (
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <h3 className="font-semibold text-sm">{influencer.title}</h3>
-                              <div className="flex items-center space-x-4 mt-2 text-xs text-muted-foreground">
-                                <span>👥 {influencer.subs}</span>
-                                <span>👁️ {influencer.views}</span>
-                                <span>⭐ {influencer.score}</span>
-                              </div>
-                              {influencer.description && (
-                                <p className="text-xs text-muted-foreground mt-2 line-clamp-2">
-                                  {influencer.description}
-                                </p>
-                              )}
-                            </div>
-                            <div className="text-right">
-                              <div className="text-lg font-bold text-green-600">
-                                {influencer.pricing}
-                              </div>
-                              <div className="text-xs text-muted-foreground">Sponsorship</div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-muted-foreground">
-                  <div className="text-4xl mb-4">🔍</div>
-                  <p>No influencers found yet.</p>
-                  <p className="text-sm">Select keywords and click "Search Influencers" to get started.</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+        {/* Influencer Results moved to Influencers tab */}
       </div>
     </div>
   )

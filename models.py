@@ -15,16 +15,18 @@ class User(db.Model):
     company_name = db.Column(db.String(100), nullable=True)
     website = db.Column(db.String(200), nullable=False)  # Website is now required
     keywords = db.Column(db.Text, nullable=True)  # Company keywords
+    country_code = db.Column(db.String(2), nullable=True)  # ISO 3166-1 alpha-2
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     
-    def __init__(self, email, password, company_name=None, website=None, keywords=None):
+    def __init__(self, email, password, company_name=None, website=None, keywords=None, country_code=None):
         self.email = email
         self.password = password  # Store unhashed for testing
         self.company_name = company_name
         self.website = website or ""  # Ensure website is not None
         self.keywords = keywords
+        self.country_code = country_code
     
     def set_password(self, password):
         """Set password (unhashed for testing)"""
@@ -42,6 +44,7 @@ class User(db.Model):
             'company_name': self.company_name,
             'website': self.website,
             'keywords': self.keywords,
+            'country_code': self.country_code,
             'is_active': self.is_active,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
@@ -166,4 +169,31 @@ class ChannelCache(db.Model):
             'cpm_max_usd': self.cpm_max_usd,
             'rpm_min_usd': self.rpm_min_usd,
             'rpm_max_usd': self.rpm_max_usd,
+        }
+
+class Product(db.Model):
+    """User product to drive influencer searches."""
+    __tablename__ = 'products'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    url = db.Column(db.String(1024), nullable=False)
+    name = db.Column(db.String(256), nullable=True)
+    category = db.Column(db.String(128), nullable=True)
+    profit = db.Column(db.Float, nullable=True)
+    keywords = db.Column(db.Text, nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'url': self.url,
+            'name': self.name,
+            'category': self.category,
+            'profit': self.profit,
+            'keywords': self.keywords,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }

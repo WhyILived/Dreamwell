@@ -5,13 +5,15 @@ import type React from "react"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
-import { Users, Building2, Menu, Settings, LogOut } from "lucide-react"
+import { Users, Building2, Menu, Settings, LogOut, Package, Search } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
 
 const navigation = [
   { name: "Brand Profile", href: "/dashboard", icon: Building2 },
+  { name: "Products", href: "/dashboard/products", icon: Package },
+  { name: "Influencers", href: "/dashboard/influencers", icon: Search },
 ]
 
 export default function DashboardLayout({

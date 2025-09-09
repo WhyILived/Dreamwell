@@ -311,38 +311,6 @@ class GemsAPI:
             print(f"❌ Error with Gemini keyword generation: {e}")
             return []
 
-    def get_influencer_pricing(self, influencer_data: Dict[str, Any]) -> str:
-        """
-        Get AI-powered pricing estimate for influencer sponsorship
-        
-        Args:
-            influencer_data: Dict containing influencer stats (subs, views, score, etc.)
-            
-        Returns:
-            str: Pricing estimate in USD
-        """
-        if not self.gemini_model:
-            return "API not available"
-        
-        try:
-            prompt = f"""
-            Based on this YouTube influencer's stats, estimate the sponsorship value in USD:
-            - Channel: {influencer_data.get('title', 'Unknown')}
-            - Subscribers: {influencer_data.get('subs', 'Unknown')}
-            - Views: {influencer_data.get('views', 'Unknown')}
-            - Score: {influencer_data.get('score', 'Unknown')}
-            
-            Provide a realistic sponsorship price range in USD (e.g., "$500-$2000" or "$100-$500").
-            Consider factors like subscriber count, engagement, and niche relevance.
-            """
-            
-            response = self.gemini_model.generate_content(prompt)
-            return response.text.strip() if response.text else "Price not available"
-            
-        except Exception as e:
-            print(f"Error getting pricing: {e}")
-            return "Error calculating pricing"
-
     # ==================== CACHING FUNCTIONS ====================
     
     def _get_cache_key(self, keywords: str, search_type: str, filters: Dict[str, Any] = None) -> str:
@@ -499,33 +467,95 @@ class GemsAPI:
                     vc.transcript = self.get_video_transcript(vid) or vc.transcript
                 except Exception:
                     pass
-                # Approximate avg_recent_views over this channel's recent cached videos (up to 10)
+                # Approximate avg_recent_views over channel's recent cached videos (<=10, within 180 days if possible)
                 try:
+                    from datetime import datetime, timedelta
+                    window_days = 180
+                    now = datetime.utcnow()
+
+                    def _parse_ts(ts: str):
+                        # Try ISO or RFC3339-like strings
+                        try:
+                            # Trim Z if present
+                            t = ts.rstrip('Z')
+                            # Try common formats
+                            for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+                                try:
+                                    return datetime.strptime(t, fmt)
+                                except Exception:
+                                    continue
+                        except Exception:
+                            return None
+                        return None
+
                     recent = (VideoCache.query
                               .filter_by(channel_id=vc.channel_id)
                               .order_by(VideoCache.updated_at.desc())
-                              .limit(10)
+                              .limit(30)
                               .all())
-                    views = [row.view_count for row in recent if isinstance(row.view_count, int)]
+                    # Filter by recency window if published_at is available
+                    filtered = []
+                    cutoff = now - timedelta(days=window_days)
+                    for row in recent:
+                        ts = row.published_at or ""
+                        dt = _parse_ts(ts) if ts else None
+                        if dt is None or dt >= cutoff:
+                            filtered.append(row)
+                    # Take up to 10
+                    filtered = filtered[:10] if filtered else recent[:10]
+
+                    views = [row.view_count for row in filtered if isinstance(row.view_count, int)]
                     if vc.view_count is not None and isinstance(vc.view_count, int):
-                        if vid not in [row.video_id for row in recent]:
+                        if vid not in [row.video_id for row in filtered]:
                             views.append(vc.view_count)
                     vc.avg_recent_views = int(sum(views) / len(views)) if views else None
+                    try:
+                        print(f"AVR_DEBUG video-level: channel={vc.channel_id} video={vid} used_videos={len(filtered)} views_used={len(views)} avg_recent_views={vc.avg_recent_views}")
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
             # Compute/update per-channel CPM estimates
             for cid in channel_ids:
                 # derive signals from latest cached videos
-                rows = VideoCache.query.filter_by(channel_id=cid).order_by(VideoCache.updated_at.desc()).limit(10).all()
-                if not rows:
+                rows_all = VideoCache.query.filter_by(channel_id=cid).order_by(VideoCache.updated_at.desc()).limit(30).all()
+                if not rows_all:
                     continue
+                # Apply recency window
+                from datetime import datetime, timedelta
+                window_days = 180
+                now = datetime.utcnow()
+                def _parse_ts2(ts: str):
+                    try:
+                        t = ts.rstrip('Z')
+                        for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+                            try:
+                                return datetime.strptime(t, fmt)
+                            except Exception:
+                                continue
+                    except Exception:
+                        return None
+                    return None
+                cutoff = now - timedelta(days=window_days)
+                rows = []
+                for r in rows_all:
+                    ts = r.published_at or ""
+                    dt = _parse_ts2(ts) if ts else None
+                    if dt is None or dt >= cutoff:
+                        rows.append(r)
+                rows = rows[:10] if rows else rows_all[:10]
+
                 country = rows[0].country
                 language = 'en'  # best-effort default; could be inferred later
                 subscribers = rows[0].subscriber_count
                 # avg_recent_views: mean over recent rows
                 vs = [r.view_count for r in rows if isinstance(r.view_count, int)]
                 avg_recent_views = int(sum(vs) / len(vs)) if vs else None
+                try:
+                    print(f"AVR_DEBUG channel-level: channel={cid} used_videos={len(rows)} avg_recent_views={avg_recent_views}")
+                except Exception:
+                    pass
                 # engagement_rate: compute from likes+comments over views for recent videos
                 try:
                     vids2 = [r.video_id for r in rows]
@@ -566,7 +596,12 @@ class GemsAPI:
                 ch.engagement_rate = engagement_rate
                 ch.cpm_min_usd, ch.cpm_max_usd = est["cpm_usd"]
                 ch.rpm_min_usd, ch.rpm_max_usd = est["rpm_usd"]
-            db.session.commit()
+            # Commit (single attempt; debug issues if it fails)
+            try:
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                print(f"Error upserting ChannelCache: {e}")
         except Exception as e:
             print(f"Error upserting VideoCache: {e}")
         
@@ -646,6 +681,56 @@ class GemsAPI:
             return " ".join(seg.get("text", "") for seg in raw).strip() or None
         except Exception:
             return None
+
+    # ==================== PRODUCT EXTRACTION ====================
+    def extract_product_from_url(self, url: str) -> Dict[str, Any]:
+        """Scrape page and use Gemini to extract name, category, and keywords (no price)."""
+        out = {"name": None, "category": None, "keywords": []}
+        try:
+            # Fetch and truncate html
+            html = fetch(url)  # reuse scraper's fetch if imported, else fallback
+        except Exception:
+            try:
+                import requests
+                r = requests.get(url, timeout=10)
+                r.raise_for_status()
+                html = r.text[:150000]
+            except Exception:
+                html = ""
+        if not self.gemini_model:
+            return out
+        prompt = f"""
+        You are extracting product details from a webpage for influencer targeting.
+        URL: {url}
+        Page HTML (truncated):
+        ```
+        {html}
+        ```
+
+        Extract:
+        - name: concise product name
+        - category: short category tag (e.g., "fitness apparel", "tech gadget")
+        - keywords: 2-3 concise search keywords relevant for finding videos from YouTube influencers who would be a good fit. Do not include the product name in the keywords.
+
+        Respond in JSON with keys: name, category, keywords (array of strings).
+        """
+        try:
+            resp = self.gemini_model.generate_content(prompt)
+            import json as _json
+            txt = (resp.text or "").strip()
+            # Try to parse JSON
+            start = txt.find("{")
+            end = txt.rfind("}")
+            if start != -1 and end != -1 and end > start:
+                parsed = _json.loads(txt[start:end+1])
+                # normalize
+                out["name"] = parsed.get("name")
+                out["category"] = parsed.get("category")
+                kws = parsed.get("keywords") or []
+                out["keywords"] = [str(k).strip() for k in kws if str(k).strip()]
+        except Exception:
+            pass
+        return out
     
     def clear_expired_cache(self):
         """Remove all expired cache entries"""
