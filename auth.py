@@ -91,7 +91,7 @@ def register():
         
         # Create access token
         access_token = create_access_token(
-            identity=user.id,
+            identity=str(user.id),
             expires_delta=timedelta(days=7)
         )
         
@@ -131,7 +131,7 @@ def login():
         
         # Create access token
         access_token = create_access_token(
-            identity=user.id,
+            identity=str(user.id),
             expires_delta=timedelta(days=7)
         )
         
@@ -150,6 +150,10 @@ def get_profile():
     """Get current user profile"""
     try:
         user_id = get_jwt_identity()
+        try:
+            user_id = int(user_id)
+        except Exception:
+            return jsonify({"error": "Invalid token subject"}), 401
         user = User.query.get(user_id)
         
         if not user:
@@ -168,6 +172,10 @@ def update_profile():
     """Update user profile"""
     try:
         user_id = get_jwt_identity()
+        try:
+            user_id = int(user_id)
+        except Exception:
+            return jsonify({"error": "Invalid token subject"}), 401
         print(f"DEBUG: User ID from JWT: {user_id}")
 
         user = User.query.get(user_id)
@@ -563,8 +571,9 @@ def search_influencers():
                         "title": row.get('title', 'Unknown'),
                         "subs": row.get('subs', 'Unknown'),
                         "views": row.get('views', 'Unknown'),
-                        "avg_recent_views": row.get('avg_recent_views', None),
+                        "avg_recent_views": row.get('avg_recent_views'),
                         "score": row.get('score', 'Unknown'),
+                        "country": row.get('country'),
                         "pricing": pricing,
                         "url": row.get('url', ''),
                         "description": row.get('description', ''),
@@ -577,8 +586,9 @@ def search_influencers():
                         "title": row.get('title', 'Unknown'),
                         "subs": row.get('subs', 'Unknown'),
                         "views": row.get('views', 'Unknown'),
-                        "avg_recent_views": row.get('avg_recent_views', None),
+                        "avg_recent_views": row.get('avg_recent_views'),
                         "score": row.get('score', 'Unknown'),
+                        "country": row.get('country'),
                         "pricing": "Price not available",
                         "url": row.get('url', ''),
                         "description": row.get('description', ''),

@@ -67,13 +67,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (credentials: LoginRequest) => {
     try {
       const response = await apiClient.login(credentials);
-      // Clear per-user local caches on new login
-      try {
-        if (typeof window !== 'undefined' && response.user?.id) {
-          window.localStorage.removeItem(`influencerResults_v1:${response.user.id}`);
-          window.localStorage.removeItem(`productSelections_v1:${response.user.id}`);
-        }
-      } catch {}
       setUser(response.user);
       try { if (typeof window !== 'undefined') window.localStorage.setItem('user', JSON.stringify(response.user)); } catch {}
     } catch (error) {
@@ -84,13 +77,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (userData: RegisterRequest) => {
     try {
       const response = await apiClient.register(userData);
-      // Clear per-user local caches on fresh register
-      try {
-        if (typeof window !== 'undefined' && response.user?.id) {
-          window.localStorage.removeItem(`influencerResults_v1:${response.user.id}`);
-          window.localStorage.removeItem(`productSelections_v1:${response.user.id}`);
-        }
-      } catch {}
       setUser(response.user);
       try { if (typeof window !== 'undefined') window.localStorage.setItem('user', JSON.stringify(response.user)); } catch {}
     } catch (error) {
@@ -100,12 +86,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = () => {
     apiClient.logout();
-    try {
-      if (typeof window !== 'undefined' && user?.id) {
-        window.localStorage.removeItem(`influencerResults_v1:${user.id}`);
-        window.localStorage.removeItem(`productSelections_v1:${user.id}`);
-      }
-    } catch {}
     setUser(null);
     try { if (typeof window !== 'undefined') window.localStorage.removeItem('user'); } catch {}
   };

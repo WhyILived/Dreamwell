@@ -467,95 +467,31 @@ class GemsAPI:
                     vc.transcript = self.get_video_transcript(vid) or vc.transcript
                 except Exception:
                     pass
-                # Approximate avg_recent_views over channel's recent cached videos (<=10, within 180 days if possible)
+                # Average views per video using channel totals: total_channel_views / total_videos
                 try:
-                    from datetime import datetime, timedelta
-                    window_days = 180
-                    now = datetime.utcnow()
-
-                    def _parse_ts(ts: str):
-                        # Try ISO or RFC3339-like strings
-                        try:
-                            # Trim Z if present
-                            t = ts.rstrip('Z')
-                            # Try common formats
-                            for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
-                                try:
-                                    return datetime.strptime(t, fmt)
-                                except Exception:
-                                    continue
-                        except Exception:
-                            return None
-                        return None
-
-                    recent = (VideoCache.query
-                              .filter_by(channel_id=vc.channel_id)
-                              .order_by(VideoCache.updated_at.desc())
-                              .limit(30)
-                              .all())
-                    # Filter by recency window if published_at is available
-                    filtered = []
-                    cutoff = now - timedelta(days=window_days)
-                    for row in recent:
-                        ts = row.published_at or ""
-                        dt = _parse_ts(ts) if ts else None
-                        if dt is None or dt >= cutoff:
-                            filtered.append(row)
-                    # Take up to 10
-                    filtered = filtered[:10] if filtered else recent[:10]
-
-                    views = [row.view_count for row in filtered if isinstance(row.view_count, int)]
-                    if vc.view_count is not None and isinstance(vc.view_count, int):
-                        if vid not in [row.video_id for row in filtered]:
-                            views.append(vc.view_count)
-                    vc.avg_recent_views = int(sum(views) / len(views)) if views else None
-                    try:
-                        print(f"AVR_DEBUG video-level: channel={vc.channel_id} video={vid} used_videos={len(filtered)} views_used={len(views)} avg_recent_views={vc.avg_recent_views}")
-                    except Exception:
-                        pass
+                    total_views = cstat.get('view_count') or 0
+                    total_videos = cstat.get('video_count') or 0
+                    vc.avg_recent_views = int(total_views / max(1, total_videos)) if (total_views or total_videos) else None
                 except Exception:
                     pass
 
             # Compute/update per-channel CPM estimates
             for cid in channel_ids:
                 # derive signals from latest cached videos
-                rows_all = VideoCache.query.filter_by(channel_id=cid).order_by(VideoCache.updated_at.desc()).limit(30).all()
-                if not rows_all:
+                rows = VideoCache.query.filter_by(channel_id=cid).order_by(VideoCache.updated_at.desc()).limit(10).all()
+                if not rows:
                     continue
-                # Apply recency window
-                from datetime import datetime, timedelta
-                window_days = 180
-                now = datetime.utcnow()
-                def _parse_ts2(ts: str):
-                    try:
-                        t = ts.rstrip('Z')
-                        for fmt in ("%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
-                            try:
-                                return datetime.strptime(t, fmt)
-                            except Exception:
-                                continue
-                    except Exception:
-                        return None
-                    return None
-                cutoff = now - timedelta(days=window_days)
-                rows = []
-                for r in rows_all:
-                    ts = r.published_at or ""
-                    dt = _parse_ts2(ts) if ts else None
-                    if dt is None or dt >= cutoff:
-                        rows.append(r)
-                rows = rows[:10] if rows else rows_all[:10]
-
                 country = rows[0].country
                 language = 'en'  # best-effort default; could be inferred later
                 subscribers = rows[0].subscriber_count
-                # avg_recent_views: mean over recent rows
-                vs = [r.view_count for r in rows if isinstance(r.view_count, int)]
-                avg_recent_views = int(sum(vs) / len(vs)) if vs else None
+                # avg_recent_views: total_channel_views / total_videos from channel statistics
+                cstat2 = ch_stats.get(cid, {})
                 try:
-                    print(f"AVR_DEBUG channel-level: channel={cid} used_videos={len(rows)} avg_recent_views={avg_recent_views}")
+                    total_views2 = cstat2.get('view_count') or 0
+                    total_videos2 = cstat2.get('video_count') or 0
+                    avg_recent_views = int(total_views2 / max(1, total_videos2)) if (total_views2 or total_videos2) else None
                 except Exception:
-                    pass
+                    avg_recent_views = None
                 # engagement_rate: compute from likes+comments over views for recent videos
                 try:
                     vids2 = [r.video_id for r in rows]
@@ -596,12 +532,7 @@ class GemsAPI:
                 ch.engagement_rate = engagement_rate
                 ch.cpm_min_usd, ch.cpm_max_usd = est["cpm_usd"]
                 ch.rpm_min_usd, ch.rpm_max_usd = est["rpm_usd"]
-            # Commit (single attempt; debug issues if it fails)
-            try:
-                db.session.commit()
-            except Exception as e:
-                db.session.rollback()
-                print(f"Error upserting ChannelCache: {e}")
+            db.session.commit()
         except Exception as e:
             print(f"Error upserting VideoCache: {e}")
         

@@ -3,6 +3,9 @@ from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
 from flask_cors import CORS
 from models import db, bcrypt
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
+import sqlite3
 from auth import auth_bp
 import os
 from config import config
@@ -21,7 +24,17 @@ def create_app(config_name=None):
     jwt = JWTManager(app)
     migrate = Migrate(app, db)
     CORS(app, origins=['http://localhost:3000'])  # Allow Next.js dev server
-    
+
+    # Ensure SQLite uses DELETE journal mode (no -wal / -shm files)
+    @event.listens_for(Engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        if isinstance(dbapi_connection, sqlite3.Connection):
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=DELETE")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+            finally:
+                cursor.close()
     
     # Register blueprints
     app.register_blueprint(auth_bp)

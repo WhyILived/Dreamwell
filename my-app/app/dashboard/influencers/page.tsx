@@ -32,29 +32,14 @@ export default function InfluencersPage() {
   const [resultsByProduct, setResultsByProduct] = useState<Record<number, { results: any[]; averages: any }>>({})
   const resultsStorageKey = useMemo(() => user ? `influencerResults_v1:${user.id}` : 'influencerResults_v1:anon', [user])
 
-  const formatCompact = (value: any) => {
-    const num = Number(value)
-    if (!isFinite(num) || num <= 0) return 'Unknown'
-    try {
-      return new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(num)
-    } catch {
-      return String(Math.round(num))
-    }
-  }
-
   // Load cached results on mount/user change
   useEffect(() => {
     try {
       const raw = typeof window !== 'undefined' ? window.localStorage.getItem(resultsStorageKey) : null
       if (raw) {
         const parsed = JSON.parse(raw)
-        // Basic sanity: require array-ish products and results map
-        const hasValidResults = parsed && parsed.resultsByProduct && typeof parsed.resultsByProduct === 'object'
-        const isFresh = parsed && typeof parsed.savedAt === 'number' && (Date.now() - parsed.savedAt) < 1000 * 60 * 60 * 24 * 7 // 7 days
-        if (hasValidResults && isFresh) {
+        if (parsed && parsed.resultsByProduct) {
           setResultsByProduct(parsed.resultsByProduct)
-        } else if (typeof window !== 'undefined') {
-          window.localStorage.removeItem(resultsStorageKey)
         }
       }
     } catch {}
@@ -171,7 +156,7 @@ export default function InfluencersPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-primary">{formatCompact(entry.averages?.avg_views || 0)}</div>
+                    <div className="text-2xl font-bold text-primary">{Math.round(entry.averages?.avg_views || 0).toLocaleString()}</div>
                     <div className="text-sm text-muted-foreground">Avg Views</div>
                   </div>
                   <div className="text-center">
@@ -184,9 +169,9 @@ export default function InfluencersPage() {
                     <div key={i} className="border rounded p-3">
                       <div className="flex items-center justify-between">
                         <a href={inf.url || '#'} target="_blank" rel="noreferrer" className="font-medium hover:underline">{inf.title}</a>
-                        <div className="text-xs text-muted-foreground">{inf.country || 'Unknown'}</div>
+                        <div className="text-xs text-muted-foreground">{inf.country || 'Unknown,Country'}</div>
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">👥 {formatCompact(inf.subs)} · 👁️ {formatCompact((inf.avg_recent_views ?? inf.views))} · ⭐ {inf.score}</div>
+                      <div className="text-xs text-muted-foreground mt-1">👥 {inf.subs} · 👁️ {inf.avg_recent_views} · ⭐ {inf.score}</div>
                       {inf.recent_videos && inf.recent_videos.length>0 && (
                         <div className="mt-2 text-xs">
                           Recent: {inf.recent_videos.slice(0,2).map((v:any)=>v.title).join(' · ')}

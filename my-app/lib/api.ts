@@ -69,7 +69,7 @@ class ApiClient {
     };
 
     if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+      headers.Authorization = `Bearer ${this.token}`;
     }
 
     const response = await fetch(url, {
@@ -78,6 +78,9 @@ class ApiClient {
     });
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 422) {
+        this.setToken(null);
+      }
       const error: ApiError = await response.json();
       throw new Error(error.error || 'An error occurred');
     }

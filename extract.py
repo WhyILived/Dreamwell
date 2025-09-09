@@ -502,16 +502,20 @@ def search_with_filters(keywords="wireless earbuds review", max_results: int = 5
         except Exception:
             pass
 
+        # Also fetch channel statistics for ALL channels to compute avg views = total views / total videos
+        try:
+            all_ch_stats = gems_client.get_channels_stats(list(channels.keys())) if channels else {}
+        except Exception:
+            all_ch_stats = {}
+
         # Convert to list and add basic scoring
         results = []
         for channel_id, channel_data in channels.items():
-            # Average recent views from fetched per-video stats (closest proxy)
-            # use cached per-video view_count from VideoCache
-            views_list = [
-                (vc_map.get(v['video_id']).view_count if vc_map.get(v['video_id']) else 0)
-                for v in channel_data['recent_videos']
-            ]
-            avg_recent_views = sum(views_list) / max(1, len(views_list))
+            # Average views per video using channel totals only (no per-video averaging)
+            cstat = all_ch_stats.get(channel_id, {})
+            total_views = cstat.get('view_count') or 0
+            total_videos = cstat.get('video_count') or 0
+            avg_recent_views = total_views / max(1, total_videos)
 
             # Channel-level stats
             # derive from any row in this channel
@@ -522,7 +526,8 @@ def search_with_filters(keywords="wireless earbuds review", max_results: int = 5
                     sample_row = r
                     break
             subscriber_count = sample_row.subscriber_count if sample_row else None
-            country = sample_row.country if sample_row else None
+            # Prefer DB country if present; else fall back to channel stats
+            country = (sample_row.country if sample_row and sample_row.country else (cstat.get('country') if cstat else None))
 
             # Simple scoring using recent video count (kept lightweight)
             score = channel_data['video_count'] * 10
