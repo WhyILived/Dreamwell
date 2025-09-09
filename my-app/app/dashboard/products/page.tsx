@@ -13,7 +13,7 @@ export default function ProductsPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [products, setProducts] = useState<any[]>([])
   const [editingId, setEditingId] = useState<number | null>(null)
-  const [editForm, setEditForm] = useState<any>({ name: "", category: "", profit: "", keywords: "" })
+  const [editForm, setEditForm] = useState<any>({ name: "", category: "", profit: "", keywords: "", is_luxury: false })
   const [loadingList, setLoadingList] = useState(false)
   const [selections, setSelections] = useState<Record<number, string[]>>({})
 
@@ -106,6 +106,7 @@ export default function ProductsPage() {
       category: p.category || "",
       profit: typeof p.profit === 'number' ? String(p.profit) : "",
       keywords: p.keywords || "",
+      is_luxury: Boolean(p.is_luxury)
     })
   }
 
@@ -119,6 +120,7 @@ export default function ProductsPage() {
           category: editForm.category,
           profit: editForm.profit ? parseFloat(editForm.profit) : null,
           keywords: editForm.keywords,
+          is_luxury: !!editForm.is_luxury,
         })
       })
       if (!res.ok) throw new Error("Failed to update product")
@@ -186,6 +188,10 @@ export default function ProductsPage() {
                     <input className="w-full border rounded px-2 py-1" placeholder="Category" value={editForm.category} onChange={(e)=>setEditForm({...editForm, category: e.target.value})} />
                     <input className="w-full border rounded px-2 py-1" placeholder="Profit (USD)" value={editForm.profit} onChange={(e)=>setEditForm({...editForm, profit: e.target.value})} />
                     <textarea className="w-full border rounded px-2 py-1" placeholder="Keywords (comma-separated)" value={editForm.keywords} onChange={(e)=>setEditForm({...editForm, keywords: e.target.value})} />
+                    <div className="flex items-center space-x-2">
+                      <Checkbox id={`lux-${editingId}`} checked={!!editForm.is_luxury} onCheckedChange={(v)=>setEditForm({...editForm, is_luxury: Boolean(v)})} />
+                      <Label htmlFor={`lux-${editingId}`} className="text-sm">Luxury product</Label>
+                    </div>
                     <div className="flex gap-2">
                       <button onClick={()=>saveEdit(p.id)} className="px-3 py-1 bg-primary text-primary-foreground rounded">Save</button>
                       <button onClick={()=>setEditingId(null)} className="px-3 py-1 border rounded">Cancel</button>

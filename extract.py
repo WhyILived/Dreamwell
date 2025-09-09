@@ -528,6 +528,7 @@ def search_with_filters(keywords="wireless earbuds review", max_results: int = 5
             subscriber_count = sample_row.subscriber_count if sample_row else None
             # Prefer DB country if present; else fall back to channel stats
             country = (sample_row.country if sample_row and sample_row.country else (cstat.get('country') if cstat else None))
+            about_description = cstat.get('about_description') if cstat else None
 
             # Simple scoring using recent video count (kept lightweight)
             score = channel_data['video_count'] * 10
@@ -548,6 +549,7 @@ def search_with_filters(keywords="wireless earbuds review", max_results: int = 5
                 ],
                 'score': score,
                 'country': country or 'Unknown',
+                'about_description': about_description,
                 'search_keywords': keywords,
                 'filters_applied': 'Recent (1 year) + Popular (view count)'
             }

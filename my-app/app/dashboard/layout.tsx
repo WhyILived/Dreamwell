@@ -14,6 +14,7 @@ const navigation = [
   { name: "Brand Profile", href: "/dashboard", icon: Building2 },
   { name: "Products", href: "/dashboard/products", icon: Package },
   { name: "Influencers", href: "/dashboard/influencers", icon: Search },
+  { name: "Settings", href: "/dashboard/settings", icon: Settings },
 ]
 
 export default function DashboardLayout({
@@ -58,10 +59,6 @@ export default function DashboardLayout({
 
       {/* Footer */}
       <div className="p-4 border-t border-sidebar-border space-y-2">
-        <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-primary">
-          <Settings className="w-4 h-4 mr-3" />
-          Settings
-        </Button>
         <Button variant="ghost" className="w-full justify-start text-sidebar-foreground hover:bg-sidebar-primary">
           <LogOut className="w-4 h-4 mr-3" />
           Sign Out

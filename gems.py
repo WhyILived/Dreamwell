@@ -532,6 +532,9 @@ class GemsAPI:
                 ch.engagement_rate = engagement_rate
                 ch.cpm_min_usd, ch.cpm_max_usd = est["cpm_usd"]
                 ch.rpm_min_usd, ch.rpm_max_usd = est["rpm_usd"]
+                # populate about/metadata from channel stats if present
+                cstat_full = ch_stats.get(cid, {})
+                ch.about_description = cstat_full.get('about_description')
             db.session.commit()
         except Exception as e:
             print(f"Error upserting VideoCache: {e}")
@@ -562,7 +565,12 @@ class GemsAPI:
                         "subscriber_count": int(st.get("subscriberCount", 0)) if not st.get("hiddenSubscriberCount") else None,
                         "view_count": int(st.get("viewCount", 0)) if st.get("viewCount") else 0,
                         "video_count": int(st.get("videoCount", 0)) if st.get("videoCount") else 0,
-                        "country": sn.get("country")
+                        "country": sn.get("country"),
+                        "about_description": sn.get("description"),
+                        "title": sn.get("title"),
+                        "published_at": sn.get("publishedAt"),
+                        "custom_url": sn.get("customUrl"),
+                        "thumbnails": (sn.get("thumbnails") or {})
                     }
         except Exception as e:
             print(f"Error fetching channel stats: {e}")

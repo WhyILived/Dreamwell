@@ -146,6 +146,7 @@ class ChannelCache(db.Model):
     country = db.Column(db.String(8), nullable=True)
     language = db.Column(db.String(8), nullable=True)
     niche = db.Column(db.String(64), nullable=True)
+    about_description = db.Column(db.Text, nullable=True)
     subscribers = db.Column(db.Integer, nullable=True)
     avg_recent_views = db.Column(db.Integer, nullable=True)
     engagement_rate = db.Column(db.Float, nullable=True)
@@ -162,6 +163,7 @@ class ChannelCache(db.Model):
             'country': self.country,
             'language': self.language,
             'niche': self.niche,
+            'about_description': self.about_description,
             'subscribers': self.subscribers,
             'avg_recent_views': self.avg_recent_views,
             'engagement_rate': self.engagement_rate,
@@ -182,6 +184,7 @@ class Product(db.Model):
     category = db.Column(db.String(128), nullable=True)
     profit = db.Column(db.Float, nullable=True)
     keywords = db.Column(db.Text, nullable=True)
+    is_luxury = db.Column(db.Boolean, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
@@ -194,6 +197,40 @@ class Product(db.Model):
             'category': self.category,
             'profit': self.profit,
             'keywords': self.keywords,
+            'is_luxury': self.is_luxury,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
+
+    def __repr__(self):
+        return f'<Product {self.name}>'
+
+class ScoringWeights(db.Model):
+    """User-specific scoring weight preferences for influencer matching."""
+    __tablename__ = 'scoring_weights'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    values_weight = db.Column(db.Float, nullable=False, default=0.20)  # 20% default
+    cultural_weight = db.Column(db.Float, nullable=False, default=0.10)  # 10% default
+    cpm_weight = db.Column(db.Float, nullable=False, default=0.20)  # 20% default
+    rpm_weight = db.Column(db.Float, nullable=False, default=0.20)  # 20% default
+    views_to_subs_weight = db.Column(db.Float, nullable=False, default=0.30)  # 30% default
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'values_weight': self.values_weight,
+            'cultural_weight': self.cultural_weight,
+            'cpm_weight': self.cpm_weight,
+            'rpm_weight': self.rpm_weight,
+            'views_to_subs_weight': self.views_to_subs_weight,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None
+        }
+
+    def __repr__(self):
+        return f'<ScoringWeights user_id={self.user_id}>'

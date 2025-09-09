@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
+import { formatCompactNumber } from "@/lib/utils"
 // Keyword selection managed on Products page; this page reads selections only
 
 type Product = {
@@ -32,15 +33,11 @@ export default function InfluencersPage() {
   const [resultsByProduct, setResultsByProduct] = useState<Record<number, { results: any[]; averages: any }>>({})
   const resultsStorageKey = useMemo(() => user ? `influencerResults_v1:${user.id}` : 'influencerResults_v1:anon', [user])
 
-  // Load cached results on mount/user change
+  // Clear any stale cached results on mount/user change
   useEffect(() => {
     try {
-      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(resultsStorageKey) : null
-      if (raw) {
-        const parsed = JSON.parse(raw)
-        if (parsed && parsed.resultsByProduct) {
-          setResultsByProduct(parsed.resultsByProduct)
-        }
+      if (typeof window !== 'undefined') {
+        window.localStorage.removeItem(resultsStorageKey)
       }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -86,23 +83,25 @@ export default function InfluencersPage() {
     }
     setLoading(true)
     try {
-      // Load selections from localStorage (set by Products page)
-      let stored: Record<number, string[]> = {}
+      // Load keyword selections saved on the Products page
+      let storedSelections: Record<number, string[]> = {}
       try {
         const key = user ? `productSelections_v1:${user.id}` : 'productSelections_v1:anon'
         const raw = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null
-        stored = raw ? JSON.parse(raw) : {}
+        storedSelections = raw ? JSON.parse(raw) : {}
       } catch {}
 
       const tasks = products.map(async (p) => {
-        const selectedForProduct = (stored[p.id] || (p.keywords || "").split(',').map(k => k.trim()).filter(Boolean))
+        // Use saved selections if present; otherwise fall back to all product keywords
+        const baseKeywords = (p.keywords || "").split(',').map(k => k.trim()).filter(Boolean)
+        const selectedForProduct = (storedSelections[p.id] && Array.isArray(storedSelections[p.id]) ? storedSelections[p.id] : baseKeywords)
         const unique = Array.from(new Set(selectedForProduct)).filter(Boolean)
         if (unique.length === 0) {
           return { id: p.id, data: { influencers: [], averages: { avg_views: 0, avg_score: 0 } } }
         }
         const res = await fetch('http://localhost:5000/api/auth/search-influencers', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keywords: unique })
+          body: JSON.stringify({ keywords: unique, user_id: user?.id, product_id: p.id })
         })
         if (!res.ok) throw new Error('Search failed')
         const data = await res.json()
@@ -114,12 +113,7 @@ export default function InfluencersPage() {
         map[o.id] = { results: o.data.influencers || [], averages: o.data.averages || { avg_views: 0, avg_score: 0 } }
       }
       setResultsByProduct(map)
-      // Persist to localStorage to survive tab switches
-      try {
-        if (typeof window !== 'undefined') {
-          window.localStorage.setItem(resultsStorageKey, JSON.stringify({ resultsByProduct: map, savedAt: Date.now() }))
-        }
-      } catch {}
+      // Do not persist results to localStorage to avoid stale data after DB resets
     } catch (e) {
       console.error(e)
       alert('Search failed')
@@ -156,7 +150,7 @@ export default function InfluencersPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
                   <div className="text-center">
-                    <div className="text-2xl font-bold text-primary">{Math.round(entry.averages?.avg_views || 0).toLocaleString()}</div>
+                    <div className="text-2xl font-bold text-primary">{formatCompactNumber(entry.averages?.avg_views || 0)}</div>
                     <div className="text-sm text-muted-foreground">Avg Views</div>
                   </div>
                   <div className="text-center">
@@ -171,7 +165,7 @@ export default function InfluencersPage() {
                         <a href={inf.url || '#'} target="_blank" rel="noreferrer" className="font-medium hover:underline">{inf.title}</a>
                         <div className="text-xs text-muted-foreground">{inf.country || 'Unknown,Country'}</div>
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">👥 {inf.subs} · 👁️ {inf.avg_recent_views} · ⭐ {inf.score}</div>
+                      <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)} · ⭐ {inf.score}</div>
                       {inf.recent_videos && inf.recent_videos.length>0 && (
                         <div className="mt-2 text-xs">
                           Recent: {inf.recent_videos.slice(0,2).map((v:any)=>v.title).join(' · ')}

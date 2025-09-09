@@ -3,7 +3,7 @@ from flask_jwt_extended import create_access_token, jwt_required, get_jwt_identi
 from models import db, User
 from datetime import timedelta
 import re
-from models import Product
+from models import Product, ScoringWeights
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -451,6 +451,7 @@ def ingest_product():
             name=extracted.get('name'),
             category=extracted.get('category'),
             keywords=", ".join(extracted.get('keywords') or []),
+            is_luxury=None,
         )
         db.session.add(product)
         db.session.commit()
@@ -501,6 +502,11 @@ def update_product(product_id: int):
                 product.profit = None
         if 'keywords' in data:
             product.keywords = (data.get('keywords') or '').strip() or None
+        if 'is_luxury' in data:
+            try:
+                product.is_luxury = bool(data.get('is_luxury')) if data.get('is_luxury') is not None else None
+            except Exception:
+                product.is_luxury = None
 
         db.session.commit()
         return jsonify({"message": "Product updated", "product": product.to_dict()}), 200
@@ -519,6 +525,8 @@ def search_influencers():
         keywords = data['keywords']
         if not keywords or len(keywords) == 0:
             return jsonify({"error": "At least one keyword is required"}), 400
+        user_id = data.get('user_id')
+        product_id = data.get('product_id')
         
         # Import extract here to avoid circular imports
         from extract import search_with_filters
@@ -540,7 +548,37 @@ def search_influencers():
             except Exception as e:
                 print(f"  ⚠️  Skipping '{kw}' due to error: {e}")
 
-        # Process results (pricing removed)
+        # Process results with scoring
+        # Load user's scoring weights
+        user_weights = None
+        try:
+            if user_id:
+                weights_record = ScoringWeights.query.filter_by(user_id=int(user_id)).first()
+                if weights_record:
+                    user_weights = {
+                        'values_weight': weights_record.values_weight,
+                        'cultural_weight': weights_record.cultural_weight,
+                        'cpm_weight': weights_record.cpm_weight,
+                        'rpm_weight': weights_record.rpm_weight,
+                        'views_to_subs_weight': weights_record.views_to_subs_weight
+                    }
+        except Exception:
+            pass
+        
+        # Use default weights if none found
+        if not user_weights:
+            user_weights = {
+                'values_weight': 0.20,
+                'cultural_weight': 0.10,
+                'cpm_weight': 0.20,
+                'rpm_weight': 0.20,
+                'views_to_subs_weight': 0.30
+            }
+        
+        # Context defaults
+        company_values = locals().get('company_values', [])
+        company_country = locals().get('company_country', None)
+        is_luxury = locals().get('is_luxury', None)
         processed_influencers = []
         avg_views = 0
         avg_score = 0
@@ -566,21 +604,102 @@ def search_influencers():
             for i, row in enumerate(all_rows[:25]):  # hard cap to avoid overload
                 try:
                     pricing = "Price not available"
+                    # Helpers
+                    def clamp01(v):
+                        try:
+                            return max(0.0, min(1.0, float(v)))
+                        except Exception:
+                            return 0.0
+                    def score_values_match(about_text: str) -> float:
+                        if not about_text or not company_values:
+                            return 0.5
+                        text = (about_text or '').lower()
+                        hits = sum(1 for v in company_values if v and v in text)
+                        return clamp01(hits / max(1, len(company_values)))
+                    def score_cultural(influencer_country: str) -> float:
+                        if not company_country or not influencer_country:
+                            return 0.5
+                        return 1.0 if (company_country or '').upper() == (influencer_country or '').upper() else 0.5
+                    def score_cpm(avg_cpm: float) -> float:
+                        if not avg_cpm or avg_cpm <= 0:
+                            return 0.5
+                        if avg_cpm <= 5: return 1.0
+                        if avg_cpm >= 40: return 0.0
+                        return clamp01((40 - avg_cpm) / 35)
+                    def score_rpm(avg_rpm: float) -> float:
+                        if not avg_rpm or avg_rpm <= 0:
+                            return 0.5
+                        if is_luxury:
+                            if avg_rpm <= 2: return 0.0
+                            if avg_rpm >= 20: return 1.0
+                            return clamp01((avg_rpm - 2) / 18)
+                        else:
+                            if avg_rpm <= 2: return 1.0
+                            if avg_rpm >= 20: return 0.0
+                            return clamp01((20 - avg_rpm) / 18)
+                    def score_ratio(avg_views: float, subs: float) -> float:
+                        try:
+                            subs = float(subs)
+                            if subs <= 0: return 0.5
+                            ratio = float(avg_views or 0) / subs
+                            return clamp01(ratio / 0.2)
+                        except Exception:
+                            return 0.5
+
+                    # CPM/RPM from ChannelCache
+                    cpm_avg = None
+                    rpm_avg = None
+                    try:
+                        from models import ChannelCache
+                        ch = ChannelCache.query.filter_by(channel_id=row.get('channel_id')).first()
+                        if ch:
+                            if ch.cpm_min_usd is not None and ch.cpm_max_usd is not None:
+                                cpm_avg = (float(ch.cpm_min_usd) + float(ch.cpm_max_usd)) / 2.0
+                            if ch.rpm_min_usd is not None and ch.rpm_max_usd is not None:
+                                rpm_avg = (float(ch.rpm_min_usd) + float(ch.rpm_max_usd)) / 2.0
+                    except Exception:
+                        pass
+
+                    s_values = score_values_match(row.get('about_description') or row.get('description'))
+                    s_culture = score_cultural(row.get('country'))
+                    s_cpm = score_cpm(cpm_avg if cpm_avg is not None else 0)
+                    s_rpm = score_rpm(rpm_avg if rpm_avg is not None else 0)
+                    s_ratio = score_ratio(row.get('avg_recent_views') or 0, row.get('subs') or 0)
+
+                    # Use user's custom weights
+                    weighted = (
+                        s_values * user_weights['values_weight'] +
+                        s_culture * user_weights['cultural_weight'] +
+                        s_cpm * user_weights['cpm_weight'] +
+                        s_rpm * user_weights['rpm_weight'] +
+                        s_ratio * user_weights['views_to_subs_weight']
+                    )
+                    final_score_100 = round(weighted * 100, 1)
+
                     processed_influencers.append({
                         "id": i + 1,
                         "title": row.get('title', 'Unknown'),
                         "subs": row.get('subs', 'Unknown'),
                         "views": row.get('views', 'Unknown'),
                         "avg_recent_views": row.get('avg_recent_views'),
-                        "score": row.get('score', 'Unknown'),
+                        "score": final_score_100,
                         "country": row.get('country'),
+                        "score_components": {
+                            "values": round(s_values * 100, 1),
+                            "cultural": round(s_culture * 100, 1),
+                            "cpm": round(s_cpm * 100, 1),
+                            "rpm": round(s_rpm * 100, 1),
+                            "views_to_subs": round(s_ratio * 100, 1)
+                        },
+                        "cpm_avg": cpm_avg,
+                        "rpm_avg": rpm_avg,
                         "pricing": pricing,
                         "url": row.get('url', ''),
                         "description": row.get('description', ''),
                         "origin_keyword": row.get('origin_keyword', '')
                     })
                 except Exception as e:
-                    print(f"DEBUG: Error getting pricing for influencer {i}: {str(e)}")
+                    print(f"DEBUG: Error scoring influencer {i}: {str(e)}")
                     processed_influencers.append({
                         "id": i + 1,
                         "title": row.get('title', 'Unknown'),
@@ -607,4 +726,81 @@ def search_influencers():
         
     except Exception as e:
         print(f"DEBUG: Error searching influencers: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/scoring-weights', methods=['GET'])
+def get_scoring_weights():
+    """Get user's scoring weight preferences"""
+    try:
+        user_id = request.args.get('user_id', type=int)
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+        
+        weights = ScoringWeights.query.filter_by(user_id=user_id).first()
+        if not weights:
+            # Create default weights if none exist
+            weights = ScoringWeights(
+                user_id=user_id,
+                values_weight=0.20,
+                cultural_weight=0.10,
+                cpm_weight=0.20,
+                rpm_weight=0.20,
+                views_to_subs_weight=0.30
+            )
+            db.session.add(weights)
+            db.session.commit()
+        
+        return jsonify({
+            "weights": weights.to_dict()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/scoring-weights', methods=['POST'])
+def update_scoring_weights():
+    """Update user's scoring weight preferences"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        user_id = data.get('user_id')
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+        
+        # Validate weights sum to 1.0 (100%)
+        total_weight = sum([
+            data.get('values_weight', 0),
+            data.get('cultural_weight', 0),
+            data.get('cpm_weight', 0),
+            data.get('rpm_weight', 0),
+            data.get('views_to_subs_weight', 0)
+        ])
+        
+        if abs(total_weight - 1.0) > 0.01:  # Allow small floating point errors
+            return jsonify({"error": "Weights must sum to 100%"}), 400
+        
+        # Get or create weights record
+        weights = ScoringWeights.query.filter_by(user_id=user_id).first()
+        if not weights:
+            weights = ScoringWeights(user_id=user_id)
+            db.session.add(weights)
+        
+        # Update weights
+        weights.values_weight = data.get('values_weight', 0.20)
+        weights.cultural_weight = data.get('cultural_weight', 0.10)
+        weights.cpm_weight = data.get('cpm_weight', 0.20)
+        weights.rpm_weight = data.get('rpm_weight', 0.20)
+        weights.views_to_subs_weight = data.get('views_to_subs_weight', 0.30)
+        
+        db.session.commit()
+        
+        return jsonify({
+            "message": "Scoring weights updated successfully",
+            "weights": weights.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
         return jsonify({"error": str(e)}), 500
