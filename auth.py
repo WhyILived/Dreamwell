@@ -583,6 +583,32 @@ def search_influencers():
                                 pricing = f"${ch.suggested_pricing_min_usd:.0f} - ${ch.suggested_pricing_max_usd:.0f}"
                     except Exception:
                         pass
+                    
+                    # Calculate expected profit if product has profit value
+                    expected_profit = "Profit N/A"
+                    if product_id:
+                        try:
+                            from models import Product
+                            from cpm import calculate_expected_profit
+                            product = Product.query.get(int(product_id))
+                            if product and product.profit and product.profit > 0:
+                                if ch and ch.cpm_min_usd and ch.cpm_max_usd and ch.rpm_min_usd and ch.rpm_max_usd:
+                                    profit_min, profit_max = calculate_expected_profit(
+                                        product_profit=product.profit,
+                                        cpm_min=ch.cpm_min_usd,
+                                        cpm_max=ch.cpm_max_usd,
+                                        rpm_min=ch.rpm_min_usd,
+                                        rpm_max=ch.rpm_max_usd,
+                                        avg_recent_views=ch.avg_recent_views or 0,
+                                        subscribers=ch.subscribers or 0,
+                                        engagement_rate=ch.engagement_rate,
+                                        suggested_pricing_min=ch.suggested_pricing_min_usd,
+                                        suggested_pricing_max=ch.suggested_pricing_max_usd
+                                    )
+                                    expected_profit = f"${profit_min:.0f} - ${profit_max:.0f}"
+                        except Exception as e:
+                            print(f"DEBUG: Error calculating expected profit: {e}")
+                            pass
 
                     # Call AI scoring API (no delay needed for Gemini)
                     try:
@@ -663,6 +689,7 @@ def search_influencers():
                         "cpm_avg": cpm_avg,
                         "rpm_avg": rpm_avg,
                         "pricing": pricing,
+                        "expected_profit": expected_profit,
                         "url": row.get('url', ''),
                         "description": row.get('description', ''),
                         "origin_keyword": row.get('origin_keyword', '')
@@ -678,6 +705,7 @@ def search_influencers():
                         "score": row.get('score', 'Unknown'),
                         "country": row.get('country'),
                         "pricing": "Price not available",
+                        "expected_profit": "Profit N/A",
                         "url": row.get('url', ''),
                         "description": row.get('description', ''),
                         "origin_keyword": row.get('origin_keyword', '')

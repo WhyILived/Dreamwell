@@ -262,3 +262,101 @@ def calculate_suggested_pricing(cpm_min: float, cpm_max: float, rpm_min: float, 
     return round(pricing_min, 2), round(pricing_max, 2)
 
 
+def calculate_expected_profit(product_profit: float, cpm_min: float, cpm_max: float, 
+                            rpm_min: float, rpm_max: float, avg_recent_views: int, 
+                            subscribers: int, engagement_rate: float = None, 
+                            suggested_pricing_min: float = None, suggested_pricing_max: float = None) -> tuple[float, float]:
+    """
+    Calculate expected profit for a product based on influencer metrics and suggested pricing.
+    
+    Args:
+        product_profit: Profit per unit sold (in USD)
+        cpm_min: Minimum CPM in USD
+        cpm_max: Maximum CPM in USD
+        rpm_min: Minimum RPM in USD
+        rpm_max: Maximum RPM in USD
+        avg_recent_views: Average views per video
+        subscribers: Total subscriber count
+        engagement_rate: Engagement rate (likes+comments/views) if available
+        suggested_pricing_min: Minimum suggested pricing for partnership
+        suggested_pricing_max: Maximum suggested pricing for partnership
+        
+    Returns:
+        tuple: (expected_profit_min_usd, expected_profit_max_usd)
+    """
+    if not product_profit or product_profit <= 0:
+        return 0.0, 0.0
+    
+    if not avg_recent_views or avg_recent_views <= 0:
+        return 0.0, 0.0
+    
+    # Calculate conversion rate based on engagement and audience quality
+    base_conversion_rate = 0.001  # 0.1% base conversion rate
+    
+    # Engagement multiplier for conversion rate
+    if engagement_rate and engagement_rate > 0:
+        if engagement_rate >= 0.1:  # 10%+ engagement
+            engagement_multiplier = 3.0
+        elif engagement_rate >= 0.05:  # 5%+ engagement
+            engagement_multiplier = 2.0
+        elif engagement_rate >= 0.02:  # 2%+ engagement
+            engagement_multiplier = 1.5
+        else:  # < 2% engagement
+            engagement_multiplier = 1.0
+    else:
+        engagement_multiplier = 1.0
+    
+    # RPM-based quality multiplier (higher RPM = better audience quality)
+    avg_rpm = (rpm_min + rpm_max) / 2.0
+    if avg_rpm >= 5.0:  # High RPM = premium audience
+        quality_multiplier = 2.0
+    elif avg_rpm >= 2.0:  # Medium RPM
+        quality_multiplier = 1.5
+    else:  # Lower RPM
+        quality_multiplier = 1.0
+    
+    # Subscriber count multiplier (more subscribers = better reach)
+    if subscribers:
+        if subscribers >= 1000000:  # 1M+ subscribers
+            reach_multiplier = 1.5
+        elif subscribers >= 500000:  # 500K+ subscribers
+            reach_multiplier = 1.3
+        elif subscribers >= 100000:  # 100K+ subscribers
+            reach_multiplier = 1.1
+        elif subscribers >= 10000:  # 10K+ subscribers
+            reach_multiplier = 1.0
+        else:  # < 10K subscribers
+            reach_multiplier = 0.8
+    else:
+        reach_multiplier = 1.0
+    
+    # Calculate adjusted conversion rate
+    adjusted_conversion_rate = base_conversion_rate * engagement_multiplier * quality_multiplier * reach_multiplier
+    
+    # Cap conversion rate at 5% (realistic maximum)
+    adjusted_conversion_rate = min(adjusted_conversion_rate, 0.05)
+    
+    # Calculate expected units sold
+    expected_units_min = int(avg_recent_views * adjusted_conversion_rate * 0.8)  # Conservative estimate
+    expected_units_max = int(avg_recent_views * adjusted_conversion_rate * 1.2)  # Optimistic estimate
+    
+    # Calculate expected revenue from sales
+    expected_revenue_min = expected_units_min * product_profit
+    expected_revenue_max = expected_units_max * product_profit
+    
+    # Subtract partnership cost if pricing is available
+    if suggested_pricing_min and suggested_pricing_max:
+        expected_profit_min = expected_revenue_min - suggested_pricing_max  # Use max pricing for min profit
+        expected_profit_max = expected_revenue_max - suggested_pricing_min  # Use min pricing for max profit
+    else:
+        # If no pricing available, just show revenue potential
+        expected_profit_min = expected_revenue_min
+        expected_profit_max = expected_revenue_max
+    
+    # Ensure non-negative profits (at worst, break even)
+    expected_profit_min = max(expected_profit_min, 0.0)
+    expected_profit_max = max(expected_profit_max, expected_profit_min)
+    
+    return round(expected_profit_min, 2), round(expected_profit_max, 2)
+
+

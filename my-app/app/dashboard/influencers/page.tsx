@@ -200,7 +200,7 @@ export default function InfluencersPage() {
                           <div className="text-xs text-muted-foreground">{inf.country || 'Unknown'}</div>
                         </div>
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)} · 💰 {inf.pricing || 'Price N/A'}</div>
+                      <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)} · 💰 {inf.pricing || 'Price N/A'} · 📈 {inf.expected_profit || 'Profit N/A'}</div>
                       {inf.score_components && (
                         <div className="mt-2 text-xs text-muted-foreground">
                           <div className="flex flex-wrap gap-1">
