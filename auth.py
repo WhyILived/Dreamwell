@@ -566,10 +566,11 @@ def search_influencers():
 
             for i, row in enumerate(all_rows[:25]):  # hard cap to avoid overload
                 try:
-                    # Get CPM/RPM and suggested pricing from ChannelCache
+                    # Get CPM/RPM, suggested pricing, and email from ChannelCache
                     cpm_avg = None
                     rpm_avg = None
                     pricing = "Price not available"
+                    email = "N/A"
                     try:
                         from models import ChannelCache
                         ch = ChannelCache.query.filter_by(channel_id=row.get('channel_id')).first()
@@ -581,6 +582,9 @@ def search_influencers():
                             # Use suggested pricing if available
                             if ch.suggested_pricing_min_usd is not None and ch.suggested_pricing_max_usd is not None:
                                 pricing = f"${ch.suggested_pricing_min_usd:.0f} - ${ch.suggested_pricing_max_usd:.0f}"
+                            # Get email if available
+                            if ch.email:
+                                email = ch.email
                     except Exception:
                         pass
                     
@@ -639,6 +643,12 @@ def search_influencers():
                             scoring_data = scoring_response.json()
                             raw_scores = scoring_data.get('raw_scores', {})
                             reasoning = scoring_data.get('reasoning', {})
+                            # Get email from AI response if available
+                            ai_email = scoring_data.get('email', 'N/A')
+                            print(f"DEBUG: AI extracted email: {ai_email}")
+                            if ai_email and ai_email != 'N/A':
+                                email = ai_email
+                                print(f"DEBUG: Updated email to: {email}")
                             
                             # Apply user weights to calculate final score
                             final_score = (
@@ -690,10 +700,12 @@ def search_influencers():
                         "rpm_avg": rpm_avg,
                         "pricing": pricing,
                         "expected_profit": expected_profit,
+                        "email": email,
                         "url": row.get('url', ''),
                         "description": row.get('description', ''),
                         "origin_keyword": row.get('origin_keyword', '')
                     })
+                    print(f"DEBUG: Final email for influencer {i + 1}: {email}")
                 except Exception as e:
                     print(f"DEBUG: Error scoring influencer {i}: {str(e)}")
                     processed_influencers.append({
@@ -706,6 +718,7 @@ def search_influencers():
                         "country": row.get('country'),
                         "pricing": "Price not available",
                         "expected_profit": "Profit N/A",
+                        "email": "N/A",
                         "url": row.get('url', ''),
                         "description": row.get('description', ''),
                         "origin_keyword": row.get('origin_keyword', '')
@@ -843,6 +856,7 @@ Respond with ONLY a JSON object in this exact format:
   "cpm_score": 90,
   "rpm_score": 75,
   "engagement_score": 80,
+  "email": "contact@example.com",
   "reasoning": {{
     "values": "Brief values alignment analysis (max 20 words)",
     "cultural": "Concise cultural fit assessment (max 20 words)",
@@ -851,6 +865,8 @@ Respond with ONLY a JSON object in this exact format:
     "engagement": "Concise engagement quality summary (max 20 words)"
   }}
 }}
+
+IMPORTANT: For the email field, extract any email address found in the channel description. If no email is found, use "N/A".
 """
         
         # Call Gemini API
@@ -904,6 +920,20 @@ Respond with ONLY a JSON object in this exact format:
                 print(f"DEBUG: Error caching AI scores: {e}")
                 # Continue without caching if there's an error
         
+        # Update ChannelCache with extracted email
+        if channel_id:
+            try:
+                from models import ChannelCache, db
+                ch = ChannelCache.query.filter_by(channel_id=channel_id).first()
+                if ch:
+                    extracted_email = scores_data.get('email', 'N/A')
+                    if extracted_email and extracted_email != 'N/A':
+                        ch.email = extracted_email
+                        db.session.commit()
+                        print(f"DEBUG: Updated email for channel {channel_id}: {extracted_email}")
+            except Exception as e:
+                print(f"DEBUG: Error updating email for channel {channel_id}: {e}")
+        
         # Return raw scores without applying weights
         return jsonify({
             "raw_scores": {
@@ -913,7 +943,8 @@ Respond with ONLY a JSON object in this exact format:
                 "rpm": scores_data.get('rpm_score', 50),
                 "engagement": scores_data.get('engagement_score', 50)
             },
-            "reasoning": scores_data.get('reasoning', {})
+            "reasoning": scores_data.get('reasoning', {}),
+            "email": scores_data.get('email', 'N/A')
         }), 200
         
     except Exception as e:

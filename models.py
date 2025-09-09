@@ -147,6 +147,7 @@ class ChannelCache(db.Model):
     language = db.Column(db.String(8), nullable=True)
     niche = db.Column(db.String(64), nullable=True)
     about_description = db.Column(db.Text, nullable=True)
+    email = db.Column(db.String(255), nullable=True)
     subscribers = db.Column(db.Integer, nullable=True)
     avg_recent_views = db.Column(db.Integer, nullable=True)
     engagement_rate = db.Column(db.Float, nullable=True)
@@ -168,6 +169,7 @@ class ChannelCache(db.Model):
             'language': self.language,
             'niche': self.niche,
             'about_description': self.about_description,
+            'email': self.email,
             'subscribers': self.subscribers,
             'avg_recent_views': self.avg_recent_views,
             'engagement_rate': self.engagement_rate,
