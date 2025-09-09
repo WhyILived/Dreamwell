@@ -11,6 +11,18 @@ def validate_email(email):
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return re.match(pattern, email) is not None
 
+def validate_website(website):
+    """Validate website URL format"""
+    if not website:
+        return False, "Website URL is required"
+    
+    # Basic URL validation
+    pattern = r'^https?:\/\/.+\..+'
+    if not re.match(pattern, website):
+        return False, "Please enter a valid website URL (e.g., https://yourcompany.com)"
+    
+    return True, "Valid website URL"
+
 def validate_password(password):
     """Validate password strength"""
     if len(password) < 8:
@@ -45,6 +57,15 @@ def register():
         if not validate_email(email):
             return jsonify({"error": "Invalid email format"}), 400
         
+        # Validate website
+        website = data.get('website', '').strip()
+        if not website:
+            return jsonify({"error": "Website URL is required"}), 400
+        
+        is_valid_website, website_message = validate_website(website)
+        if not is_valid_website:
+            return jsonify({"error": website_message}), 400
+        
         # Validate password
         is_valid_password, password_message = validate_password(password)
         if not is_valid_password:
@@ -59,7 +80,7 @@ def register():
             email=email,
             password=password,
             company_name=company_name if company_name else None,
-            website=website if website else None
+            website=website  # Website is now required
         )
         
         db.session.add(user)

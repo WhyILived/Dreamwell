@@ -1,6 +1,7 @@
 from flask import Flask, jsonify
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
+from flask_cors import CORS
 from models import db, bcrypt
 from auth import auth_bp
 import os
@@ -19,6 +20,7 @@ def create_app(config_name=None):
     bcrypt.init_app(app)
     jwt = JWTManager(app)
     migrate = Migrate(app, db)
+    CORS(app, origins=['http://localhost:3000'])  # Allow Next.js dev server
     
     # Register blueprints
     app.register_blueprint(auth_bp)

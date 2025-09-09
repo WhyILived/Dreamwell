@@ -13,7 +13,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(128), nullable=False)
     company_name = db.Column(db.String(100), nullable=True)
-    website = db.Column(db.String(200), nullable=True)
+    website = db.Column(db.String(200), nullable=False)  # Website is now required
     is_active = db.Column(db.Boolean, default=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -22,7 +22,7 @@ class User(db.Model):
         self.email = email
         self.set_password(password)
         self.company_name = company_name
-        self.website = website
+        self.website = website or ""  # Ensure website is not None
     
     def set_password(self, password):
         """Hash and set password"""
