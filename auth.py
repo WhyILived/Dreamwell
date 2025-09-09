@@ -317,10 +317,11 @@ def search_influencers():
         # Use the first keyword for the search
         first_keyword = keywords[0] if keywords else "influencer marketing"
         
-        # Search for influencers
-        influencers = search(first_keyword)
+        # Search for influencers (this generates the CSV)
+        print(f"DEBUG: Running search with keyword: {first_keyword}")
+        search(first_keyword)  # This generates influencers.csv
         
-        print(f"DEBUG: Found {len(influencers)} influencers")
+        print(f"DEBUG: Search completed, now reading CSV data")
         
         # Process CSV results and get pricing
         processed_influencers = []
