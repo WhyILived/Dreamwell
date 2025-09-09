@@ -162,9 +162,6 @@ export default function InfluencersPage() {
         </button>
       </div>
 
-      <div className="flex items-center justify-center">
-        <button onClick={loadProducts} className="text-xs underline disabled:opacity-50" disabled={loadingProducts}>{loadingProducts ? 'Refreshing…' : 'Refresh products'}</button>
-      </div>
       {/* Results per product (below the two-column layout) */}
       {Object.keys(resultsByProduct).length > 0 && (
         <div className="mt-6 space-y-6">
@@ -189,17 +186,6 @@ export default function InfluencersPage() {
               <div key={p.id} className="space-y-3">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-semibold">Results for: {p.name || '(Unnamed product)'}</h3>
-                  <div className="text-xs text-muted-foreground">{(entry.averages?.avg_score ?? 0).toFixed ? (entry.averages.avg_score as number).toFixed(1) : entry.averages?.avg_score}</div>
-                </div>
-                <div className="grid grid-cols-2 gap-4 p-4 bg-muted rounded-lg">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-primary">{formatCompactNumber(entry.averages?.avg_views || 0)}</div>
-                    <div className="text-sm text-muted-foreground">Avg Views</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-primary">{(entry.averages?.avg_score as any)?.toFixed ? (entry.averages?.avg_score as any).toFixed(1) : entry.averages?.avg_score || 0}</div>
-                    <div className="text-sm text-muted-foreground">Avg Score</div>
-                  </div>
                 </div>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {entry.results.map((inf: any, i: number) => (
@@ -207,7 +193,7 @@ export default function InfluencersPage() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-2">
                           <span className="text-sm font-bold text-primary">#{i + 1}</span>
-                          <a href={inf.url || '#'} target="_blank" rel="noreferrer" className="font-medium hover:underline">{inf.title}</a>
+                          <a href={inf.channel_id ? `https://www.youtube.com/channel/${inf.channel_id}` : (inf.url || '#')} target="_blank" rel="noreferrer" className="font-medium hover:underline">{inf.title}</a>
                         </div>
                         <div className="flex items-center space-x-2">
                           <div className="text-sm font-bold text-green-600">{typeof inf.score === 'number' ? inf.score.toFixed(1) : inf.score}</div>

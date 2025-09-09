@@ -649,6 +649,7 @@ def search_influencers():
                         "avg_recent_views": row.get('avg_recent_views'),
                         "score": final_score,
                         "country": row.get('country'),
+                        "channel_id": row.get('channel_id', ''),
                         "score_components": {
                             "values": component_scores.get('values', 50),
                             "cultural": component_scores.get('cultural', 50),
