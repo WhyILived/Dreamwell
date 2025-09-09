@@ -243,51 +243,50 @@ export default function InfluencersPage() {
               )
             }
             return (
-              <div key={p.id} className="space-y-3">
+              <div key={p.id} className="space-y-3 border-2 border-black rounded-lg p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-base font-semibold">Results for: {p.name || '(Unnamed product)'}</h3>
                 </div>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {entry.results.map((inf: any, i: number) => (
-                    <div key={i} className="border rounded p-3">
-                      <div className="flex items-center justify-between">
+                    <div key={i} className="border-2 border-gray-300 rounded-lg p-4 shadow-sm">
+                      {/* Header with ranking, name, and score */}
+                      <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center space-x-2">
                           <span className="text-sm font-bold text-primary">#{i + 1}</span>
                           <a href={inf.channel_id ? `https://www.youtube.com/channel/${inf.channel_id}` : (inf.url || '#')} target="_blank" rel="noreferrer" className="font-medium hover:underline">{inf.title}</a>
                         </div>
-                        <div className="flex items-center space-x-2">
-                          <div className="text-sm font-bold text-green-600">{typeof inf.score === 'number' ? inf.score.toFixed(1) : inf.score}</div>
-                          <div className="text-xs text-muted-foreground">{inf.country || 'Unknown'}</div>
-                          <button
-                            onClick={() => openEmailModal(inf)}
-                            disabled={!inf.email || inf.email === 'N/A'}
-                            className="px-2 py-1 text-xs bg-blue-500 text-white rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
-                          >
-                            📧 Email
-                          </button>
-                        </div>
+                        <div className="text-sm font-bold text-green-600">{typeof inf.score === 'number' ? inf.score.toFixed(1) : inf.score}</div>
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)} · 💰 {inf.pricing || 'Price N/A'} · 📈 {inf.expected_profit || 'Profit N/A'} · 📧 {inf.email || 'N/A'}</div>
-                      {console.log(`DEBUG: Influencer ${i + 1} email:`, inf.email)}
-                      {inf.score_components && (
-                        <div className="mt-2 text-xs text-muted-foreground">
-                          <div className="flex flex-wrap gap-1">
-                            <span>Values: {inf.score_components.values}</span>
-                            <span>|</span>
-                            <span>Cultural: {inf.score_components.cultural}</span>
-                            <span>|</span>
-                            <span>CPM: {inf.score_components.cpm}</span>
-                            <span>|</span>
-                            <span>RPM: {inf.score_components.rpm}</span>
-                            <span>|</span>
-                            <span>Engagement: {inf.score_components.views_to_subs}</span>
-                          </div>
+
+                      {/* Two-column layout */}
+                      <div className="grid grid-cols-2 gap-4">
+                        {/* Left side - Score components and AI analysis */}
+                        <div className="space-y-3">
+                          {/* Score components */}
+                          {inf.score_components && (
+                            <div className="text-xs text-muted-foreground">
+                              <div className="flex flex-wrap gap-1">
+                                <span>Values: {inf.score_components.values}</span>
+                                <span>|</span>
+                                <span>Cultural: {inf.score_components.cultural}</span>
+                                <span>|</span>
+                                <span>CPM: {inf.score_components.cpm}</span>
+                                <span>|</span>
+                                <span>RPM: {inf.score_components.rpm}</span>
+                                <span>|</span>
+                                <span>Engagement: {inf.score_components.views_to_subs}</span>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* AI Analysis */}
                           {inf.reasoning && Object.keys(inf.reasoning).length > 0 && (
-                            <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
-                              <div className="font-medium mb-1">AI Analysis:</div>
+                            <div className="p-3 bg-muted/50 rounded text-xs">
+                              <div className="font-medium mb-2">AI Analysis:</div>
                               {['values', 'cultural', 'cpm', 'rpm', 'engagement'].map((key) => (
                                 inf.reasoning[key] && (
-                                  <div key={key} className="mb-1">
+                                  <div key={key} className="mb-2">
                                     <span className="font-medium">
                                       {key === 'cpm' ? 'CPM' : key === 'rpm' ? 'RPM' : key.charAt(0).toUpperCase() + key.slice(1)}:
                                     </span> {String(inf.reasoning[key])}
@@ -297,9 +296,56 @@ export default function InfluencersPage() {
                             </div>
                           )}
                         </div>
-                      )}
+
+                        {/* Right side - Metrics with emojis */}
+                        <div className="space-y-3">
+                          {/* Placeholder to match left side height */}
+                          <div className="text-xs text-muted-foreground">
+                            <div className="flex flex-wrap gap-1">
+                              <span>Metrics Overview</span>
+                            </div>
+                          </div>
+                          
+                          <div className="p-3 bg-muted/50 rounded text-xs">
+                            <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">👥 Subscribers</span>
+                              <span className="font-medium">{formatCompactNumber(inf.subs)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">👁️ Average Views</span>
+                              <span className="font-medium">{formatCompactNumber(inf.avg_recent_views)}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">🌍 Country</span>
+                              <span className="font-medium">{inf.country || 'Unknown'}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">💰 Expected Cost</span>
+                              <span className="font-medium">{inf.pricing || 'Price N/A'}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">📈 Expected Profit</span>
+                              <span className="font-medium">{inf.expected_profit || 'Profit N/A'}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-sm">
+                              <button
+                                onClick={() => openEmailModal(inf)}
+                                disabled={!inf.email || inf.email === 'N/A'}
+                                className="px-2 py-1 text-xs bg-blue-500 text-white rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
+                              >
+                                📧 Email
+                              </button>
+                              <span className="font-medium">{inf.email || 'N/A'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      </div>
+
+                      {/* Recent videos at bottom */}
                       {inf.recent_videos && inf.recent_videos.length>0 && (
-                        <div className="mt-2 text-xs">
+                        <div className="mt-3 text-xs text-muted-foreground">
                           Recent: {inf.recent_videos.slice(0,2).map((v:any)=>v.title).join(' · ')}
                         </div>
                       )}
