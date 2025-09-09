@@ -261,3 +261,138 @@ def update_profile_simple():
         db.session.rollback()
         print(f"DEBUG: Error in simple update: {str(e)}")
         return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/generate-keywords', methods=['POST'])
+def generate_keywords():
+    """Generate keywords from a website using the scraper"""
+    try:
+        data = request.get_json()
+        if not data or 'website' not in data:
+            return jsonify({"error": "Website URL is required"}), 400
+        
+        website = data['website'].strip()
+        if not website:
+            return jsonify({"error": "Website URL cannot be empty"}), 400
+        
+        # Import scraper here to avoid circular imports
+        from scraper import scrape
+        
+        print(f"DEBUG: Generating keywords for website: {website}")
+        
+        # Generate keywords using the scraper (same as main.py)
+        keywords = scrape(website, top_n=5)
+        
+        print(f"DEBUG: Generated keywords: {keywords}")
+        
+        return jsonify({
+            "message": "Keywords generated successfully",
+            "keywords": keywords,
+            "count": len(keywords)
+        }), 200
+        
+    except Exception as e:
+        print(f"DEBUG: Error generating keywords: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/search-influencers', methods=['POST'])
+def search_influencers():
+    """Search for YouTube influencers based on keywords and get pricing"""
+    try:
+        data = request.get_json()
+        if not data or 'keywords' not in data:
+            return jsonify({"error": "Keywords are required"}), 400
+        
+        keywords = data['keywords']
+        if not keywords or len(keywords) == 0:
+            return jsonify({"error": "At least one keyword is required"}), 400
+        
+        # Import extract here to avoid circular imports
+        from extract import search
+        import csv
+        import os
+        import google.generativeai as genai
+        
+        print(f"DEBUG: Searching for influencers with keywords: {keywords}")
+        
+        # Use the first keyword for the search
+        first_keyword = keywords[0] if keywords else "influencer marketing"
+        
+        # Search for influencers
+        influencers = search(first_keyword)
+        
+        print(f"DEBUG: Found {len(influencers)} influencers")
+        
+        # Process CSV results and get pricing
+        processed_influencers = []
+        csv_file = "influencers.csv"
+        
+        if os.path.exists(csv_file):
+            # Read CSV and calculate averages
+            with open(csv_file, 'r', encoding='utf-8') as file:
+                csv_reader = csv.DictReader(file)
+                rows = list(csv_reader)
+                
+                if rows:
+                    # Calculate averages
+                    total_views = sum(int(row.get('views', 0)) for row in rows if row.get('views', '').isdigit())
+                    total_score = sum(float(row.get('score', 0)) for row in rows if row.get('score', '').replace('.', '').isdigit())
+                    avg_views = total_views / len(rows) if rows else 0
+                    avg_score = total_score / len(rows) if rows else 0
+                    
+                    # Get Gemini API pricing for each influencer
+                    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+                    model = genai.GenerativeModel('gemini-pro')
+                    
+                    for i, row in enumerate(rows[:10]):  # Process top 10 influencers
+                        try:
+                            # Get pricing from Gemini
+                            prompt = f"""
+                            Based on this YouTube influencer's stats, estimate the sponsorship value in USD:
+                            - Channel: {row.get('title', 'Unknown')}
+                            - Subscribers: {row.get('subs', 'Unknown')}
+                            - Views: {row.get('views', 'Unknown')}
+                            - Score: {row.get('score', 'Unknown')}
+                            
+                            Provide a realistic sponsorship price range in USD (e.g., "$500-$2000" or "$100-$500").
+                            Consider factors like subscriber count, engagement, and niche relevance.
+                            """
+                            
+                            response = model.generate_content(prompt)
+                            pricing = response.text.strip() if response.text else "Price not available"
+                            
+                            processed_influencers.append({
+                                "id": i + 1,
+                                "title": row.get('title', 'Unknown'),
+                                "subs": row.get('subs', 'Unknown'),
+                                "views": row.get('views', 'Unknown'),
+                                "score": row.get('score', 'Unknown'),
+                                "pricing": pricing,
+                                "url": row.get('url', ''),
+                                "description": row.get('description', '')
+                            })
+                        except Exception as e:
+                            print(f"DEBUG: Error getting pricing for influencer {i}: {str(e)}")
+                            processed_influencers.append({
+                                "id": i + 1,
+                                "title": row.get('title', 'Unknown'),
+                                "subs": row.get('subs', 'Unknown'),
+                                "views": row.get('views', 'Unknown'),
+                                "score": row.get('score', 'Unknown'),
+                                "pricing": "Price not available",
+                                "url": row.get('url', ''),
+                                "description": row.get('description', '')
+                            })
+        
+        return jsonify({
+            "message": "Influencer search completed",
+            "influencers": processed_influencers,
+            "count": len(processed_influencers),
+            "averages": {
+                "avg_views": avg_views,
+                "avg_score": avg_score
+            }
+        }), 200
+        
+    except Exception as e:
+        print(f"DEBUG: Error searching influencers: {str(e)}")
+        return jsonify({"error": str(e)}), 500
