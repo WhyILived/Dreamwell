@@ -228,88 +228,6 @@ class GemsAPI:
 
     # ==================== GEMINI API FUNCTIONS ====================
     
-    def generate_keywords_from_website(self, url: str, top_n: int = 5) -> List[str]:
-        """
-        Generate keywords from website content using Gemini AI
-        
-        Args:
-            url: Website URL to analyze
-            top_n: Number of keywords to generate
-            
-        Returns:
-            List[str]: Generated keywords
-        """
-        if not self.gemini_model:
-            print("❌ Gemini API not available")
-            return []
-        
-        try:
-            # Import scraper functions for content extraction
-            from scraper import normalize_url, fetch, extract_weighted_text
-            
-            print(f"🌐 Fetching website content: {url}")
-            # Get website content
-            url = normalize_url(url)
-            html_content = fetch(url)
-            
-            # Extract text content for Gemini
-            buckets = extract_weighted_text(html_content)
-            
-            # Combine all text content
-            all_text = ""
-            for tag_type, texts in buckets.items():
-                for text in texts:
-                    all_text += text + " "
-            
-            # Limit content length for API
-            all_text = all_text[:8000]  # Reasonable limit for Gemini
-            
-            print(f"🤖 Sending content to Gemini for keyword analysis...")
-            
-            # Create prompt for Gemini
-            prompt = f"""
-            You are an AI assistant for an influencer marketing platform. Your job is to analyze a company's website and extract the most relevant keywords that would help find the right YouTube influencers for sponsorship opportunities.
-
-            Website URL: {url}
-            Website Content: {all_text}
-
-            Based on this website content, extract {top_n} keywords that best describe:
-            1. What the company does
-            2. Their products/services
-            3. Their target audience
-            4. Their industry/niche
-            5. Key themes and topics
-
-            Requirements:
-            - Keywords should be relevant for finding YouTube influencers
-            - Include both single words and 2-word phrases
-            - Focus on terms that influencers would use in their content
-            - Avoid generic terms like "company", "business", "website"
-            - Make keywords specific and actionable for influencer search
-
-            Return ONLY a comma-separated list of keywords, no explanations or formatting.
-            Example: "AI technology, machine learning, data science, tech innovation, software development"
-            """
-            
-            # Get response from Gemini
-            response = self.gemini_model.generate_content(prompt)
-            keywords_text = response.text.strip()
-            
-            # Parse the response
-            keywords = [k.strip() for k in keywords_text.split(',') if k.strip()]
-            
-            # Limit to requested number
-            keywords = keywords[:top_n]
-            
-            print(f"✅ Generated {len(keywords)} keywords using Gemini AI")
-            for i, keyword in enumerate(keywords, 1):
-                print(f"{i:2d}. {keyword}")
-            
-            return keywords
-            
-        except Exception as e:
-            print(f"❌ Error with Gemini keyword generation: {e}")
-            return []
 
     # ==================== CACHING FUNCTIONS ====================
     
@@ -649,8 +567,7 @@ class GemsAPI:
         Extract:
         - name: concise product name
         - category: short category tag (e.g., "fitness apparel", "tech gadget")
-        - keywords: 2-3 concise search keywords relevant for finding videos from YouTube influencers who would be a good fit. Do not include the product name in the keywords.
-
+        - keywords: 4 concise search keywords relevant for finding videos from YouTube influencers who would be a good fit. Do not include the product name in the keywords. Have atleast 2 keyword be an activity related to the product or service so for example "hiking" and "running" for a shoe product.
         Respond in JSON with keys: name, category, keywords (array of strings).
         """
         try:
@@ -715,10 +632,6 @@ class GemsAPI:
 
 # ==================== CONVENIENCE FUNCTIONS ====================
 
-def generate_keywords(url: str, top_n: int = 5) -> List[str]:
-    """Convenience function to generate keywords from website"""
-    gems = GemsAPI()
-    return gems.generate_keywords_from_website(url, top_n)
 
 def search_channels(keywords: str, filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """Convenience function to search channels with filters"""
@@ -801,7 +714,7 @@ if __name__ == "__main__":
     gems = GemsAPI()
     print("\n🧪 Gems API initialized successfully!")
     
-    # Test keyword generation
+    # Test product extraction
     test_url = "https://www.dreamwell.ai"
-    keywords = gems.generate_keywords_from_website(test_url, 5)
-    print(f"Generated keywords: {keywords}")
+    product = gems.extract_product_from_url(test_url)
+    print(f"Extracted product: {product}")

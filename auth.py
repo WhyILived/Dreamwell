@@ -282,70 +282,6 @@ def update_profile_simple():
         print(f"DEBUG: Error in simple update: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
-@auth_bp.route('/generate-keywords', methods=['POST'])
-def generate_keywords():
-    """Generate keywords from a website using the scraper"""
-    try:
-        data = request.get_json()
-        if not data or 'website' not in data:
-            return jsonify({"error": "Website URL is required"}), 400
-        
-        website = data['website'].strip()
-        user_id = data.get('user_id')  # Get user ID to save keywords
-        
-        if not website:
-            return jsonify({"error": "Website URL cannot be empty"}), 400
-        
-        if not user_id:
-            return jsonify({"error": "User ID is required to save keywords"}), 400
-        
-        # Import scraper here to avoid circular imports
-        from scraper import scrape
-        
-        print(f"DEBUG: Generating keywords for website: {website}")
-        
-        # Generate keywords using the scraper
-        keywords = scrape(website, top_n=5)
-        
-        print(f"DEBUG: Generated keywords: {keywords}")
-        
-        # Save keywords to user profile
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({"error": "User not found"}), 404
-        
-        # Convert keywords list to comma-separated string
-        keywords_string = ', '.join(keywords)
-        
-        # Get existing keywords and add new ones (avoid duplicates)
-        existing_keywords = user.keywords.split(', ') if user.keywords else []
-        existing_keywords = [k.strip() for k in existing_keywords if k.strip()]
-        
-        # Add new keywords that don't already exist
-        new_keywords = []
-        for keyword in keywords:
-            if keyword not in existing_keywords:
-                new_keywords.append(keyword)
-        
-        # Combine existing and new keywords
-        all_keywords = existing_keywords + new_keywords
-        user.keywords = ', '.join(all_keywords)
-        
-        db.session.commit()
-        
-        print(f"DEBUG: Saved keywords to user profile: {user.keywords}")
-        
-        return jsonify({
-            "message": "Keywords generated and saved successfully",
-            "keywords": keywords,
-            "new_keywords": new_keywords,
-            "all_keywords": all_keywords,
-            "count": len(keywords)
-        }), 200
-        
-    except Exception as e:
-        print(f"DEBUG: Error generating keywords: {str(e)}")
-        return jsonify({"error": str(e)}), 500
 
 @auth_bp.route('/generate-values', methods=['POST'])
 def generate_values():
@@ -537,16 +473,26 @@ def search_influencers():
         # Aggregate results: top 5 per keyword
         print("DEBUG: Running filtered search: top 5 per keyword")
         all_rows = []
-        for kw in keywords:
+        for i, kw in enumerate(keywords):
             print(f"  → Searching for: {kw}")
             try:
                 rows = search_with_filters(kw, max_results=5) or []
+                print(f"  → Found {len(rows)} results for '{kw}'")
                 # Tag each row with originating keyword
                 for r in rows:
                     r["origin_keyword"] = kw
                 all_rows.extend(rows)
+                
+                # Add delay between keyword searches to avoid rate limits
+                if i < len(keywords) - 1:
+                    print(f"  → Waiting 1 second before next keyword search...")
+                    import time
+                    time.sleep(1)
+                    
             except Exception as e:
                 print(f"  ⚠️  Skipping '{kw}' due to error: {e}")
+        
+        print(f"DEBUG: Total rows found: {len(all_rows)}")
 
         # Process results with scoring
         # Load user and product data for scoring context
@@ -636,9 +582,10 @@ def search_influencers():
                     except Exception:
                         pass
 
-                    # Call AI scoring API
+                    # Call AI scoring API (no delay needed for Gemini)
                     try:
                         import requests
+                        print(f"DEBUG: Calling AI scoring for influencer {i + 1}/{len(all_rows[:25])}")
                         scoring_response = requests.post('http://localhost:5000/api/auth/score-influencer', 
                             json={
                                 'influencer_data': {
@@ -801,7 +748,7 @@ def score_influencer():
         
         # Create comprehensive prompt for Gemini
         prompt = f"""
-You are an expert influencer marketing analyst. Score this YouTube channel for brand partnership potential on a scale of 0-100.
+You are an expert influencer marketing analyst with 10+ years of experience. Score this YouTube channel for brand partnership potential on a scale of 0-100. Be highly discriminating and provide varied, nuanced scores that reflect real differences between channels.
 
 CHANNEL DETAILS:
 - Name: {channel_title}
@@ -817,17 +764,44 @@ COMPANY CONTEXT:
 - Company Country: {company_country or 'Not specified'}
 - Product Type: {'Luxury' if is_luxury else 'Regular'}
 
-SCORING CRITERIA (provide scores 0-100 for each):
+SCORING CRITERIA (provide scores 0-100 for each - BE DISCRIMINATING):
 
-1. VALUES ALIGNMENT: How well do the channel's content themes, values, and audience align with the company's values and brand?
+1. VALUES ALIGNMENT (0-100): Analyze the channel's content themes, values, and audience demographics against the company's values. Consider:
+   - Content themes and messaging alignment
+   - Audience demographics and psychographics
+   - Brand safety and reputation fit
+   - Authenticity of potential partnership
+   - Score 90-100 for perfect alignment, 70-89 for good fit, 50-69 for moderate fit, 30-49 for poor fit, 0-29 for no alignment
 
-2. CULTURAL FIT: How culturally compatible is the channel's audience and content with the company's target market and country?
+2. CULTURAL FIT (0-100): Evaluate cultural compatibility between channel and company target market:
+   - Geographic and cultural audience overlap
+   - Language and communication style
+   - Cultural values and norms alignment
+   - Market penetration potential
+   - Score 90-100 for same culture/region, 70-89 for similar cultures, 50-69 for different but compatible, 30-49 for challenging, 0-29 for incompatible
 
-3. COST EFFICIENCY: Rate the cost-effectiveness based on CPM. Lower CPM = higher score. Consider if the pricing is reasonable for the reach.
+3. COST EFFICIENCY (0-100): Rate cost-effectiveness based on CPM and reach:
+   - CPM value relative to channel size and engagement
+   - Cost per actual engaged viewer
+   - ROI potential based on audience quality
+   - Market rate competitiveness
+   - Score 90-100 for excellent value, 70-89 for good value, 50-69 for fair value, 30-49 for poor value, 0-29 for terrible value
 
-4. REVENUE POTENTIAL: Rate based on RPM and product type. For luxury goods, higher RPM is better. For regular products, moderate RPM is preferred.
+4. REVENUE POTENTIAL (0-100): Assess revenue generation potential:
+   - For luxury products: Higher RPM = higher score (premium audience)
+   - For regular products: Moderate RPM = higher score (mass market appeal)
+   - Audience purchasing power and intent
+   - Conversion likelihood based on content type
+   - Score 90-100 for high conversion potential, 70-89 for good potential, 50-69 for moderate, 30-49 for low, 0-29 for very low
 
-5. ENGAGEMENT QUALITY: Rate the views-to-subscribers ratio and overall engagement quality. Higher ratio indicates better audience engagement.
+5. ENGAGEMENT QUALITY (0-100): Evaluate audience engagement and content quality:
+   - Views-to-subscribers ratio (higher = better)
+   - Content consistency and quality
+   - Audience loyalty and retention
+   - Community engagement level
+   - Score 90-100 for exceptional engagement, 70-89 for strong engagement, 50-69 for moderate, 30-49 for weak, 0-29 for very poor
+
+IMPORTANT: Provide varied, realistic scores that reflect genuine differences. Avoid clustering scores around 50-80. Use the full 0-100 range meaningfully.
 
 Respond with ONLY a JSON object in this exact format:
 {{
@@ -837,11 +811,11 @@ Respond with ONLY a JSON object in this exact format:
   "rpm_score": 75,
   "engagement_score": 80,
   "reasoning": {{
-    "values": "Brief explanation of values alignment",
-    "cultural": "Brief explanation of cultural fit",
-    "cpm": "Brief explanation of cost efficiency",
-    "rpm": "Brief explanation of revenue potential",
-    "engagement": "Brief explanation of engagement quality"
+    "values": "Specific analysis of values alignment with concrete examples",
+    "cultural": "Detailed cultural fit assessment with reasoning",
+    "cpm": "Cost efficiency analysis with specific metrics",
+    "rpm": "Revenue potential evaluation with market context",
+    "engagement": "Engagement quality assessment with specific indicators"
   }}
 }}
 """

@@ -55,6 +55,7 @@ export default function InfluencersPage() {
       if (!res.ok) throw new Error("Failed to load products")
       const data = await res.json()
       const list: Product[] = data.products || []
+      console.log('DEBUG: Loaded products:', list)
       setProducts(list)
       if (list.length > 0 && selectedProductId === null) {
         setSelectedProductId(list[0].id)
@@ -91,26 +92,46 @@ export default function InfluencersPage() {
         storedSelections = raw ? JSON.parse(raw) : {}
       } catch {}
 
-      const tasks = products.map(async (p) => {
-        // Use saved selections if present; otherwise fall back to all product keywords
-        const baseKeywords = (p.keywords || "").split(',').map(k => k.trim()).filter(Boolean)
-        const selectedForProduct = (storedSelections[p.id] && Array.isArray(storedSelections[p.id]) ? storedSelections[p.id] : baseKeywords)
-        const unique = Array.from(new Set(selectedForProduct)).filter(Boolean)
-        if (unique.length === 0) {
-          return { id: p.id, data: { influencers: [], averages: { avg_views: 0, avg_score: 0 } } }
-        }
-        const res = await fetch('http://localhost:5000/api/auth/search-influencers', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ keywords: unique, user_id: user?.id, product_id: p.id })
-        })
-        if (!res.ok) throw new Error('Search failed')
-        const data = await res.json()
-        return { id: p.id, data }
-      })
-      const outputs = await Promise.all(tasks)
+      // Process products in parallel with a 2s stagger between starts to avoid API rate limits
+      const outputs = await Promise.all(
+        products.map((p, idx) =>
+          new Promise<{ id: number; data: any }>((resolve) => {
+            setTimeout(async () => {
+              // Use saved selections if present; otherwise fall back to all product keywords
+              const baseKeywords = (p.keywords || "").split(',').map(k => k.trim()).filter(Boolean)
+              const selectedForProduct = (storedSelections[p.id] && Array.isArray(storedSelections[p.id]) ? storedSelections[p.id] : baseKeywords)
+              const unique = Array.from(new Set(selectedForProduct)).filter(Boolean)
+              console.log(`DEBUG: [P${p.id}] Base keywords:`, baseKeywords, 'Selected:', selectedForProduct, 'Unique:', unique)
+              console.log(`DEBUG: [P${p.id}] will search for keywords:`, unique)
+
+              if (unique.length === 0) {
+                console.log(`DEBUG: [P${p.id}] has no keywords, returning empty result`)
+                resolve({ id: p.id, data: { influencers: [], averages: { avg_views: 0, avg_score: 0 } } })
+                return
+              }
+
+              try {
+                console.log(`DEBUG: [P${p.id}] Searching (stagger idx ${idx})`)
+                const res = await fetch('http://localhost:5000/api/auth/search-influencers', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ keywords: unique, user_id: user?.id, product_id: p.id })
+                })
+                if (!res.ok) throw new Error('Search failed')
+                const data = await res.json()
+                resolve({ id: p.id, data })
+              } catch (error) {
+                console.error(`DEBUG: [P${p.id}] Error searching:`, error)
+                resolve({ id: p.id, data: { influencers: [], averages: { avg_views: 0, avg_score: 0 } } })
+              }
+            }, idx * 2000) // 2s between each product start
+          })
+        )
+      )
       const map: Record<number, { results: any[]; averages: any }> = {}
+      console.log('DEBUG: Search outputs:', outputs)
       for (const o of outputs) {
         const influencers = o.data.influencers || []
+        console.log(`DEBUG: Product ${o.id} has ${influencers.length} influencers`)
         // Sort influencers by score (highest first)
         const sortedInfluencers = influencers.sort((a: any, b: any) => {
           const scoreA = typeof a.score === 'number' ? a.score : 0
@@ -119,6 +140,7 @@ export default function InfluencersPage() {
         })
         map[o.id] = { results: sortedInfluencers, averages: o.data.averages || { avg_views: 0, avg_score: 0 } }
       }
+      console.log('DEBUG: Final results map:', map)
       setResultsByProduct(map)
       // Do not persist results to localStorage to avoid stale data after DB resets
     } catch (e) {
@@ -148,7 +170,21 @@ export default function InfluencersPage() {
         <div className="mt-6 space-y-6">
           {products.map(p => {
             const entry = resultsByProduct[p.id]
-            if (!entry) return null
+            console.log(`DEBUG: Rendering product ${p.id} (${p.name}), has entry:`, !!entry)
+            if (!entry || !entry.results || entry.results.length === 0) {
+              console.log(`DEBUG: Product ${p.id} has no results, showing empty state`)
+              return (
+                <div key={p.id} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-base font-semibold">Results for: {p.name || '(Unnamed product)'}</h3>
+                    <div className="text-xs text-muted-foreground">No results</div>
+                  </div>
+                  <div className="p-4 bg-muted rounded-lg text-center text-muted-foreground">
+                    No influencers found for this product
+                  </div>
+                </div>
+              )
+            }
             return (
               <div key={p.id} className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -181,20 +217,28 @@ export default function InfluencersPage() {
                       <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)}</div>
                       {inf.score_components && (
                         <div className="mt-2 text-xs text-muted-foreground">
-                          <div className="grid grid-cols-2 gap-1">
-                            <span>Values: {inf.score_components.values}%</span>
-                            <span>Cultural: {inf.score_components.cultural}%</span>
-                            <span>CPM: {inf.score_components.cpm}%</span>
-                            <span>RPM: {inf.score_components.rpm}%</span>
-                            <span>Engagement: {inf.score_components.views_to_subs}%</span>
+                          <div className="flex flex-wrap gap-1">
+                            <span>Values: {inf.score_components.values}</span>
+                            <span>|</span>
+                            <span>Cultural: {inf.score_components.cultural}</span>
+                            <span>|</span>
+                            <span>CPM: {inf.score_components.cpm}</span>
+                            <span>|</span>
+                            <span>RPM: {inf.score_components.rpm}</span>
+                            <span>|</span>
+                            <span>Engagement: {inf.score_components.views_to_subs}</span>
                           </div>
                           {inf.reasoning && Object.keys(inf.reasoning).length > 0 && (
                             <div className="mt-2 p-2 bg-muted/50 rounded text-xs">
                               <div className="font-medium mb-1">AI Analysis:</div>
-                              {Object.entries(inf.reasoning).map(([key, value]) => (
-                                <div key={key} className="mb-1">
-                                  <span className="font-medium capitalize">{key}:</span> {String(value)}
-                                </div>
+                              {['values', 'cultural', 'cpm', 'rpm', 'engagement'].map((key) => (
+                                inf.reasoning[key] && (
+                                  <div key={key} className="mb-1">
+                                    <span className="font-medium">
+                                      {key === 'cpm' ? 'CPM' : key === 'rpm' ? 'RPM' : key.charAt(0).toUpperCase() + key.slice(1)}:
+                                    </span> {String(inf.reasoning[key])}
+                                  </div>
+                                )
                               ))}
                             </div>
                           )}

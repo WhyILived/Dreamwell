@@ -28,7 +28,7 @@ API_VERSION = "v3"
 MAX_RETRIES = 4
 BASE_SLEEP = 0.8  # seconds
 
-# Per-call pacing (be polite)
+# Per-call pacing (be polite) - Increased to avoid rate limits
 THROTTLE_SECS = 0.1
 
 # ----------------------------
@@ -247,19 +247,7 @@ class YTInfluencerFinder:
                 })
         return out
 
-    # 5) Scoring / aggregation
-    def score_channel(self, row: Dict[str, Any], videos: List[Dict[str, Any]]) -> float:
-        subs = row.get("subs") or 0
-        total_views = sum(v["views"] for v in videos) if videos else 0
-        avg_views = total_views / max(1, len(videos))
-        eng = safe_ratio(sum(v["likes"] + v["comments"] for v in videos), total_views)
-
-        # Simple, tunable heuristic
-        return (
-            0.5 * (subs / 1_000) +
-            0.4 * (avg_views / 1_000) +
-            0.1 * (eng * 100)
-        )
+    # 5) Scoring / aggregation - REMOVED: Old scoring system replaced by AI scoring
 
     # 6) Orchestration (with fallbacks)
     def find_influencers(self, keywords: str, region: Optional[str] = None,
@@ -293,17 +281,16 @@ class YTInfluencerFinder:
                            sum(v["views"] for v in vstats)), 4
             ) if vstats else 0.0
 
-            score = round(self.score_channel(r, vstats), 3)
+            # Old scoring system removed - AI scoring is handled in auth.py
             enriched = {
                 **r,
                 "avg_recent_views": avg_recent_views,
-                "engagement_rate": engagement_rate,
-                "score": score
+                "engagement_rate": engagement_rate
             }
             results.append(enriched)
 
-        # Sort best-first
-        results.sort(key=lambda x: (x["score"], x.get("subs") or 0, x.get("avg_recent_views") or 0), reverse=True)
+        # Sort by subscribers and views (AI scoring will be applied later in auth.py)
+        results.sort(key=lambda x: (x.get("subs") or 0, x.get("avg_recent_views") or 0), reverse=True)
         return results
 
 # ----------------------------
