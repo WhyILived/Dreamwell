@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
 import { formatCompactNumber } from "@/lib/utils"
+import { apiClient } from "@/lib/api"
 // Keyword selection managed on Products page; this page reads selections only
 
 type Product = {
@@ -32,6 +33,16 @@ export default function InfluencersPage() {
   // Results by product id
   const [resultsByProduct, setResultsByProduct] = useState<Record<number, { results: any[]; averages: any }>>({})
   const resultsStorageKey = useMemo(() => user ? `influencerResults_v1:${user.id}` : 'influencerResults_v1:anon', [user])
+
+  // Email modal state
+  const [emailModalOpen, setEmailModalOpen] = useState(false)
+  const [selectedInfluencer, setSelectedInfluencer] = useState<any>(null)
+  const [emailData, setEmailData] = useState({
+    custom_message: '',
+    suggested_pricing: ''
+  })
+  const [sendingEmail, setSendingEmail] = useState(false)
+  const [emailStatus, setEmailStatus] = useState<'idle' | 'success' | 'error'>('idle')
 
   // Clear any stale cached results on mount/user change
   useEffect(() => {
@@ -151,6 +162,54 @@ export default function InfluencersPage() {
     }
   }
 
+  // Email functions
+  const openEmailModal = (influencer: any) => {
+    setSelectedInfluencer(influencer)
+    setEmailData({
+      custom_message: `Hi ${influencer.title},\n\nWe'd love to collaborate with you on our ${selectedProduct?.name || 'product'}! We believe your content would be a perfect fit for our brand.`,
+      suggested_pricing: influencer.pricing || ''
+    })
+    setEmailModalOpen(true)
+    setEmailStatus('idle')
+  }
+
+  const closeEmailModal = () => {
+    setEmailModalOpen(false)
+    setSelectedInfluencer(null)
+    setEmailData({ custom_message: '', suggested_pricing: '' })
+    setEmailStatus('idle')
+  }
+
+  const sendEmail = async () => {
+    if (!selectedInfluencer || !selectedProduct) return
+
+    setSendingEmail(true)
+    setEmailStatus('idle')
+
+    try {
+    const response = await apiClient.sendSponsorEmail({
+      influencer_name: selectedInfluencer.title,
+      influencer_email: selectedInfluencer.email || 'N/A',
+      product_name: selectedProduct.name || 'Product',
+      custom_message: emailData.custom_message,
+      suggested_pricing: emailData.suggested_pricing,
+      influencer_data: selectedInfluencer  // Pass full influencer data for AI personalization
+    })
+
+      if (response.success) {
+        setEmailStatus('success')
+        setTimeout(() => closeEmailModal(), 2000)
+      } else {
+        setEmailStatus('error')
+      }
+    } catch (error) {
+      console.error('Error sending email:', error)
+      setEmailStatus('error')
+    } finally {
+      setSendingEmail(false)
+    }
+  }
+
   if (isLoading || !user) return <div className="p-6">Loading...</div>
 
   return (
@@ -161,6 +220,7 @@ export default function InfluencersPage() {
           {loading ? 'Finding influencers…' : 'Find Influencers'}
         </button>
       </div>
+
 
       {/* Results per product (below the two-column layout) */}
       {Object.keys(resultsByProduct).length > 0 && (
@@ -198,6 +258,13 @@ export default function InfluencersPage() {
                         <div className="flex items-center space-x-2">
                           <div className="text-sm font-bold text-green-600">{typeof inf.score === 'number' ? inf.score.toFixed(1) : inf.score}</div>
                           <div className="text-xs text-muted-foreground">{inf.country || 'Unknown'}</div>
+                          <button
+                            onClick={() => openEmailModal(inf)}
+                            disabled={!inf.email || inf.email === 'N/A'}
+                            className="px-2 py-1 text-xs bg-blue-500 text-white rounded disabled:bg-gray-400 disabled:cursor-not-allowed"
+                          >
+                            📧 Email
+                          </button>
                         </div>
                       </div>
                       <div className="text-xs text-muted-foreground mt-1">👥 {formatCompactNumber(inf.subs)} · 👁️ {formatCompactNumber(inf.avg_recent_views)} · 💰 {inf.pricing || 'Price N/A'} · 📈 {inf.expected_profit || 'Profit N/A'} · 📧 {inf.email || 'N/A'}</div>
@@ -242,6 +309,73 @@ export default function InfluencersPage() {
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Email Modal */}
+      {emailModalOpen && selectedInfluencer && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold">Send Email to {selectedInfluencer.title}</h3>
+              <button
+                onClick={closeEmailModal}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">Custom Prompt</label>
+                <textarea
+                  value={emailData.custom_message}
+                  onChange={(e) => setEmailData({...emailData, custom_message: e.target.value})}
+                  className="w-full p-3 border rounded-md h-32"
+                  placeholder="Add any specific instructions or personalization for the AI to consider..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Suggested Pricing</label>
+                <input
+                  type="text"
+                  value={emailData.suggested_pricing}
+                  onChange={(e) => setEmailData({...emailData, suggested_pricing: e.target.value})}
+                  className="w-full p-2 border rounded-md"
+                  placeholder="e.g., $500 - $1000"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-3">
+                <button
+                  onClick={closeEmailModal}
+                  className="px-4 py-2 text-gray-600 border rounded-md hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={sendEmail}
+                  disabled={sendingEmail || !emailData.custom_message.trim()}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-md disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  {sendingEmail ? 'Sending...' : 'Send Email'}
+                </button>
+              </div>
+
+              {emailStatus === 'success' && (
+                <div className="p-3 bg-green-100 text-green-700 rounded-md">
+                  ✅ Email sent successfully!
+                </div>
+              )}
+              {emailStatus === 'error' && (
+                <div className="p-3 bg-red-100 text-red-700 rounded-md">
+                  ❌ Failed to send email. Please try again.
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

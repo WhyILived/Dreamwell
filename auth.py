@@ -4,6 +4,7 @@ from models import db, User
 from datetime import timedelta
 import re
 from models import Product, ScoringWeights
+from email_service import send_sponsor_outreach, send_notification_email
 
 auth_bp = Blueprint('auth', __name__, url_prefix='/api/auth')
 
@@ -609,7 +610,11 @@ def search_influencers():
                                         suggested_pricing_min=ch.suggested_pricing_min_usd,
                                         suggested_pricing_max=ch.suggested_pricing_max_usd
                                     )
-                                    expected_profit = f"${profit_min:.0f} - ${profit_max:.0f}"
+                                    # Apply score multiplier to expected profit (score as percentage)
+                                    score_multiplier = (final_score / 100) if final_score else 1.0
+                                    adjusted_profit_min = profit_min * score_multiplier
+                                    adjusted_profit_max = profit_max * score_multiplier
+                                    expected_profit = f"${adjusted_profit_min:.0f} - ${adjusted_profit_max:.0f}"
                         except Exception as e:
                             print(f"DEBUG: Error calculating expected profit: {e}")
                             pass
@@ -1027,3 +1032,82 @@ def update_scoring_weights():
     except Exception as e:
         db.session.rollback()
         return jsonify({"error": str(e)}), 500
+
+@auth_bp.route('/send-sponsor-email', methods=['POST'])
+@jwt_required()
+def send_sponsor_email():
+    """Send sponsor outreach email to influencer"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['influencer_name', 'influencer_email', 'product_name']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({"error": f"Missing required field: {field}"}), 400
+        
+        # Get user info for company name
+        user_id = int(get_jwt_identity())
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Send email with influencer data for personalization
+        success, message = send_sponsor_outreach(
+            influencer_name=data['influencer_name'],
+            influencer_email=data['influencer_email'],
+            company_name=user.company_name or "Our Company",
+            product_name=data['product_name'],
+            custom_message=data.get('custom_message', ''),
+            suggested_pricing=data.get('suggested_pricing', ''),
+            expected_profit=data.get('expected_profit', ''),
+            influencer_data=data.get('influencer_data', {})
+        )
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Email sent successfully!"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "error": message
+            }), 500
+            
+    except Exception as e:
+        print(f"Error sending sponsor email: {e}")
+        return jsonify({"error": "Failed to send email"}), 500
+
+@auth_bp.route('/send-notification', methods=['POST'])
+@jwt_required()
+def send_notification():
+    """Send notification email to company"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if not data.get('subject') or not data.get('message'):
+            return jsonify({"error": "Subject and message are required"}), 400
+        
+        # Send notification email
+        success, message = send_notification_email(
+            subject=data['subject'],
+            message=data['message'],
+            influencer_count=data.get('influencer_count', 0)
+        )
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "Notification sent successfully!"
+            }), 200
+        else:
+            return jsonify({
+                "success": False,
+                "error": message
+            }), 500
+            
+    except Exception as e:
+        print(f"Error sending notification: {e}")
+        return jsonify({"error": "Failed to send notification"}), 500

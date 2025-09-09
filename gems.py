@@ -250,7 +250,7 @@ class GemsAPI:
                         .order_by(YouTubeSearchCache.created_at.desc())
                         .first())
             if fallback and not fallback.is_expired():
-                print(f"📦 Using cached results for '{norm_kw}' ({search_type})")
+                print(f"📦 Using cached results for '{norm_kw}' ({search_type}) - created: {fallback.created_at}")
                 return json.loads(fallback.results_data)
             elif fallback:
                 # Remove expired fallback entry
@@ -339,13 +339,27 @@ class GemsAPI:
     
     def search_videos_with_cache(self, keywords: str, filters: Dict[str, Any] = None, use_cache: bool = True) -> List[Dict[str, Any]]:
         """Search for videos with caching support"""
+        print(f"🔍 Searching videos for keywords: '{keywords}' (use_cache={use_cache})")
+        
+        # Show cache stats for debugging
+        if use_cache:
+            try:
+                stats = self.get_cache_stats()
+                print(f"📊 Cache stats: {stats['active_entries']} active, {stats['expired_entries']} expired")
+            except Exception:
+                pass
+        
         # Check cache first
         if use_cache:
             cached_results = self._get_cached_results(keywords, 'videos', filters)
             if cached_results is not None:
+                print(f"✅ Cache HIT for '{keywords}' - returning {len(cached_results)} cached video IDs")
                 return cached_results
+            else:
+                print(f"❌ Cache MISS for '{keywords}' - will make API call")
         
         # Perform actual search
+        print(f"🌐 Making YouTube API call for '{keywords}'")
         results = self.search_videos_with_filters(keywords, filters)
 
         # Persist per-video details into VideoCache (and enrich with stats/transcripts);
@@ -479,6 +493,7 @@ class GemsAPI:
         
         # Save to cache
         if results and use_cache:
+            print(f"💾 Saving {len(results)} video IDs to cache for '{keywords}'")
             self._save_to_cache(keywords, 'videos', results, filters)
         
         # Return only video IDs to align with cache format

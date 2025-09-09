@@ -143,6 +143,33 @@ class ApiClient {
   isAuthenticated(): boolean {
     return !!this.token;
   }
+
+  // Email methods
+  async sendSponsorEmail(emailData: {
+    influencer_name: string;
+    influencer_email: string;
+    product_name: string;
+    custom_message?: string;
+    suggested_pricing?: string;
+    expected_profit?: string;
+    influencer_data?: any;
+  }): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>('/api/auth/send-sponsor-email', {
+      method: 'POST',
+      body: JSON.stringify(emailData),
+    });
+  }
+
+  async sendNotification(notificationData: {
+    subject: string;
+    message: string;
+    influencer_count?: number;
+  }): Promise<{ success: boolean; message: string }> {
+    return this.request<{ success: boolean; message: string }>('/api/auth/send-notification', {
+      method: 'POST',
+      body: JSON.stringify(notificationData),
+    });
+  }
 }
 
 export const apiClient = new ApiClient(API_BASE_URL);
